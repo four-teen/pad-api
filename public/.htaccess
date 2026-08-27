@@ -1,0 +1,8 @@
+Options -Indexes
+RewriteEngine On
+
+# Let real files and directories through; route API requests to the front controller.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [QSA,L]
+

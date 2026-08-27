@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+/storage/documents/*
+!/storage/documents/.gitignore
+/.phpunit.result.cache
+
