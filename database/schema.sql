@@ -7,12 +7,29 @@ CREATE TABLE offices (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   code VARCHAR(30) NOT NULL,
   name VARCHAR(160) NOT NULL,
-  description VARCHAR(255) DEFAULT NULL,
+  description VARCHAR(1000) DEFAULT NULL,
+  domain VARCHAR(160) NOT NULL DEFAULT '',
+  campus VARCHAR(80) NOT NULL DEFAULT '',
+  contact_email VARCHAR(191) NOT NULL DEFAULT '',
+  source_url VARCHAR(500) DEFAULT NULL,
+  source_checked_at DATE DEFAULT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL,
   updated_at DATETIME NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY offices_code_unique (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE office_officials (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  office_id INT UNSIGNED NOT NULL,
+  name VARCHAR(160) NOT NULL,
+  position VARCHAR(255) NOT NULL,
+  email VARCHAR(191) NOT NULL DEFAULT '',
+  alternate_email VARCHAR(191) NOT NULL DEFAULT '',
+  PRIMARY KEY (id),
+  KEY office_officials_office_index (office_id),
+  CONSTRAINT office_officials_office_foreign FOREIGN KEY (office_id) REFERENCES offices (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE users (

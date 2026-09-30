@@ -4,4 +4,4 @@
 /storage/documents/*
 !/storage/documents/.gitignore
 /.phpunit.result.cache
-
+/storage/google-certificates.json

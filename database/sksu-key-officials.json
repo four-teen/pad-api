@@ -1,0 +1,1262 @@
+{
+  "source_url": "https://sksu.edu.ph/key-officials/",
+  "checked_on": "2026-10-01",
+  "notes": "Office labels and codes are PAD routing labels derived from the published appointments. Blank campus means the page did not specify a campus. Multiple appointments in the same college/campus share one routing destination. Contacts are retained as published.",
+  "official_count": 79,
+  "offices": [
+    {
+      "code": "OP",
+      "name": "Office of the University President",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "officeofthepresident@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ATTY. CYRUS E. TORREÑA, DPA, MNSA",
+          "position": "University President",
+          "email": "officeofthepresident@sksu.edu.ph",
+          "alternate_email": "cyrustorrena@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "VPAA",
+      "name": "Office of the Vice President for Academic Affairs",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "vpacademic@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ALAN A. MAGLANTAY, PhD",
+          "position": "Vice President for Academic Affairs",
+          "email": "vpacademic@sksu.edu.ph",
+          "alternate_email": "alanmaglantay@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "VPFARG",
+      "name": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "vpfinance@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "REYNALDO H. DALAYAP JR., PhD",
+          "position": "Vice President for Finance, Administration, and Resource Generation",
+          "email": "vpfinance@sksu.edu.ph",
+          "alternate_email": "reynaldodalayap@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "VPREI",
+      "name": "Office of the Vice President for Research, Extension, and Innovation",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "vprde@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MILDRED F. ACCAD, PhD",
+          "position": "Vice President for Research, Extension, and Innovation",
+          "email": "vprde@sksu.edu.ph",
+          "alternate_email": "accadmildred@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "BOARDSEC",
+      "name": "University / Board Secretary",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "boardsecretary@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "LYNETTE G. PENIERO",
+          "position": "University/Board Secretary",
+          "email": "boardsecretary@sksu.edu.ph",
+          "alternate_email": "lynettepeniero@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PMS",
+      "name": "Presidential Management Staff",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "elviediaz@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ELVIE V. DIAZ, PhD",
+          "position": "Chief, Presidential Management Staff",
+          "email": "elviediaz@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "EXEC-ASST",
+      "name": "Executive Assistant to the President",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "rebeccasubillaga@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "REBECCA D. SUBILLAGA, PhD",
+          "position": "Executive Assistant to the President",
+          "email": "rebeccasubillaga@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "PRES-ASST",
+      "name": "Presidential Assistant",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "rodelmohamad@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "RODEL A. MOHAMAD",
+          "position": "Presidential Assistant",
+          "email": "rodelmohamad@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "SPECIAL-CONCERNS",
+      "name": "Special Assistant to the President for Special Concerns",
+      "domain": "University leadership",
+      "campus": "",
+      "contact_email": "junitomarcelino@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JUNITO P. MARCELINO, PhD",
+          "position": "Special Assistant to the President for Special Concerns",
+          "email": "junitomarcelino@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "LEGAL",
+      "name": "University Legal Office",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "legal@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ATTY. SULTAN G. SINENGGAYAN JR.",
+          "position": "University Legal Officer",
+          "email": "legal@sksu.edu.ph",
+          "alternate_email": "sultansinenggayan@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ICT",
+      "name": "Information and Communications Technology",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "ict@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MARICEL L. AMIT, DIT",
+          "position": "Director for Information and Communications Technology",
+          "email": "ict@sksu.edu.ph",
+          "alternate_email": "maricelamit@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PRI",
+      "name": "Public Relations and Information",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "pri@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JOHN LHERR N. DULIN",
+          "position": "Acting Director for Public Relations and Information",
+          "email": "pri@sksu.edu.ph",
+          "alternate_email": "johnlherrdulin@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "AUDIT",
+      "name": "Internal Audit Services",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "internalaudit@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "RAYJANNA K. HANOK, MBA",
+          "position": "Director for Internal Audit Services",
+          "email": "internalaudit@sksu.edu.ph",
+          "alternate_email": "rayjannahanok@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PLANNING",
+      "name": "Planning and Development",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "planning@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ENGR. ALDRIN RAY D. DEPUTADO",
+          "position": "Director for Planning and Development",
+          "email": "planning@sksu.edu.ph",
+          "alternate_email": "aldrinraydeputado@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PROJECTS",
+      "name": "Project Management",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "projectmanagementunit@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "NASSER M. MAITOMAMA",
+          "position": "Acting Director for Project Management",
+          "email": "projectmanagementunit@sksu.edu.ph",
+          "alternate_email": "nassermaitomama@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "QA",
+      "name": "Quality Assurance",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "qa@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "RODELYN M. DALAYAP, PhD",
+          "position": "Director for Quality Assurance",
+          "email": "qa@sksu.edu.ph",
+          "alternate_email": "rodelyndalayap@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "INTL-AFFAIRS",
+      "name": "Internationalization and External Affairs",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "officeoftheinternationalaffairs@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ABRAHAM S. ACCAD, PhD",
+          "position": "Director for Internationalization and External Affairs",
+          "email": "officeoftheinternationalaffairs@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "HRMD",
+      "name": "Human Resource Management and Development",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "hrmo@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ROSALIE S. IBOT, MM",
+          "position": "Director for Human Resource Management and Development",
+          "email": "hrmo@sksu.edu.ph",
+          "alternate_email": "rosalieibot@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "HEALTH",
+      "name": "Health and Ancillary Services",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "health@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "GRACE R. PEDROLA, RN, MNE",
+          "position": "Director for Health and Ancillary Services",
+          "email": "health@sksu.edu.ph",
+          "alternate_email": "gracepedrola@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "GAD",
+      "name": "Gender and Development",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "gad@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "RASHIDA A. ASIS, MA",
+          "position": "Director for Gender and Development",
+          "email": "gad@sksu.edu.ph",
+          "alternate_email": "rashidasasis@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "DRRM",
+      "name": "Disaster Risk Reduction and Management",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "ccrdrrmc@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ENGR. ROMMEL M. LAGUMEN, PhD",
+          "position": "Director for Disaster Risk Reduction and Management",
+          "email": "ccrdrrmc@sksu.edu.ph",
+          "alternate_email": "rommellagumen@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "SECURITY",
+      "name": "Security Services",
+      "domain": "Office of the University President",
+      "campus": "",
+      "contact_email": "securityservices@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JENNIFER J. DOLOR",
+          "position": "Director for Security Services",
+          "email": "securityservices@sksu.edu.ph",
+          "alternate_email": "jenniferdolor@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "INSTRUCTION",
+      "name": "Instruction",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "instruction@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "DOREEN B. TAMPUS, PhD",
+          "position": "Director for Instruction",
+          "email": "instruction@sksu.edu.ph",
+          "alternate_email": "doreentampus@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "GUIDANCE",
+      "name": "Guidance & Testing Center",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "guidance@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JOSELYN H. BACERA, RGC",
+          "position": "Director for Guidance & Testing Center",
+          "email": "guidance@sksu.edu.ph",
+          "alternate_email": "joselynbacera@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ALUMNI",
+      "name": "Alumni Relations",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "alumnirelations@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MARY GRACE O. GALLEGO, PhD",
+          "position": "Director for Alumni Relations",
+          "email": "alumnirelations@sksu.edu.ph",
+          "alternate_email": "marygracegallego@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "IMDC",
+      "name": "Instructional Materials Development Center",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "imdc@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "AMIRA MAE C. GUMANOY, PhD",
+          "position": "Director for Instructional Materials Development Center",
+          "email": "imdc@sksu.edu.ph",
+          "alternate_email": "amiramaegumanoy@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "LIBRARY",
+      "name": "Learning Resource Center",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "library@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "SALVADOR A. PAL, RL, PhD",
+          "position": "Acting Director for Learning Resource Center",
+          "email": "library@sksu.edu.ph",
+          "alternate_email": "salvadorpal@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "SOCIOCULTURAL",
+      "name": "Socio-Cultural Affairs",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "sociocultural@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "EMY A. MORBO, PhD",
+          "position": "Director for Socio-Cultural Affairs",
+          "email": "sociocultural@sksu.edu.ph",
+          "alternate_email": "emymorbo@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "SPORTS",
+      "name": "Sports and Amusement Center",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "sksusportsoffice@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JAYSON A. FALLE, PhD",
+          "position": "Director for Sports and Amusement Center",
+          "email": "sksusportsoffice@sksu.edu.ph",
+          "alternate_email": "jaysonfalle@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "STUDENT-AFFAIRS",
+      "name": "Students Affairs and Services",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "usg@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ADONIS S. BESA, PhD",
+          "position": "Director for Students Affairs and Services",
+          "email": "usg@sksu.edu.ph",
+          "alternate_email": "adonisbesa@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "NSTP",
+      "name": "National Service Training Program",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "nstp@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MARILOU U. PEREZ, MS",
+          "position": "Director for National Service Training Program",
+          "email": "nstp@sksu.edu.ph",
+          "alternate_email": "marilouperez@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ADMISSION",
+      "name": "Admission",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "admission@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MAY NECTAR CYRILL L. TABARES, PhD",
+          "position": "Director for Admission",
+          "email": "admission@sksu.edu.ph",
+          "alternate_email": "mncltabares@yahoo.com"
+        }
+      ]
+    },
+    {
+      "code": "REGISTRAR",
+      "name": "University Registrar",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "",
+      "contact_email": "registrar@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "SHIELA G. TABEQUERO",
+          "position": "University Registrar",
+          "email": "registrar@sksu.edu.ph",
+          "alternate_email": "shielatabequero@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "ACCESS",
+      "contact_email": "christineabo@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "CHRISTINE P. ABO, PhD",
+          "position": "Campus Director for ACCESS",
+          "email": "christineabo@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "BAGUMBAYAN-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "Bagumbayan",
+      "contact_email": "sksubagumbayan@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "PAUL RYAN L. OÑAS, PhD",
+          "position": "Campus Director for Bagumbayan",
+          "email": "sksubagumbayan@sksu.edu.ph",
+          "alternate_email": "paulryanonas@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ISULAN-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "Isulan",
+      "contact_email": "isulancampus@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "LOWELL D. ESPINOSA, PhD",
+          "position": "Campus Director for Isulan",
+          "email": "isulancampus@sksu.edu.ph",
+          "alternate_email": "lowellespinosa@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "KALAMANSIG-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "Kalamansig",
+      "contact_email": "kalamansigcampus@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "FAHAD A. SALENDAB, PhD",
+          "position": "Campus Director for Kalamansig",
+          "email": "kalamansigcampus@sksu.edu.ph",
+          "alternate_email": "fahadsalendab@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "LUTAYAN-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "Lutayan",
+      "contact_email": "lutayan@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JONATHAN P. ROQUE, PhD",
+          "position": "Campus Director for Lutayan",
+          "email": "lutayan@sksu.edu.ph",
+          "alternate_email": "jonathanroque@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PALIMBANG-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "Palimbang",
+      "contact_email": "palimbangcampus@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "KENDATU L. TAGO, MAT",
+          "position": "Campus Director for Palimbang",
+          "email": "palimbangcampus@sksu.edu.ph",
+          "alternate_email": "kendatutago@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "TACURONG-DIR",
+      "name": "Campus Director",
+      "domain": "Office of the Vice President for Academic Affairs",
+      "campus": "Tacurong",
+      "contact_email": "tacurongcampus@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "HELEN M. ESPARTERO, EdD",
+          "position": "Campus Director for Tacurong",
+          "email": "tacurongcampus@sksu.edu.ph",
+          "alternate_email": "helenespartero@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-GS",
+      "name": "Graduate School",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "sksucgs@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ADRIAN V. PROTACIO, PhD",
+          "position": "Dean, Graduate School",
+          "email": "sksucgs@sksu.edu.ph",
+          "alternate_email": "adrianprotacio@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-LAW",
+      "name": "College of Law",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "law@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ATTY. LENNIE ANN C. CERDANA, LL.M.",
+          "position": "Dean, College of Law",
+          "email": "law@sksu.edu.ph",
+          "alternate_email": "lennieanncerdana@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-MEDICINE",
+      "name": "College of Medicine",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "com@gmail.com",
+      "description": "",
+      "officials": [
+        {
+          "name": "DR. APOLINARIO M. DE GRACIA JR.",
+          "position": "Dean, College of Medicine",
+          "email": "com@gmail.com",
+          "alternate_email": "jundgmd@gmail.com"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-CCJE",
+      "name": "College of Criminal Justice Education",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "ccje@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MARLON D. BANGONON, PhD",
+          "position": "Dean, College of Criminal Justice Education",
+          "email": "ccje@sksu.edu.ph",
+          "alternate_email": "marlonbangonon@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-CHS",
+      "name": "College of Health Sciences",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "chs@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MARK ANTHONY G. ALCANTARA, RN, MAN",
+          "position": "Dean, College of Health Sciences",
+          "email": "chs@sksu.edu.ph",
+          "alternate_email": "markanthonyalcantara@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-CTE",
+      "name": "College of Teacher Education",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "cte@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ANESA P. MANGINDRA, PhD",
+          "position": "Dean, College of Teacher Education",
+          "email": "cte@sksu.edu.ph",
+          "alternate_email": "anesamangindra@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCESS-LHS",
+      "name": "Laboratory High School",
+      "domain": "College Deans",
+      "campus": "ACCESS",
+      "contact_email": "laboratoryhighschool@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JEEB T. ABELITO, PhD",
+          "position": "Principal, Laboratory High School",
+          "email": "laboratoryhighschool@sksu.edu.ph",
+          "alternate_email": "jeebabelito@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "BAGUMBAYAN-AGRIBUSINESS",
+      "name": "College of Agribusiness",
+      "domain": "College Deans",
+      "campus": "Bagumbayan",
+      "contact_email": "royjordan@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ROY C. JORDAN, MBA",
+          "position": "Dean, College of Agribusiness",
+          "email": "royjordan@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "ISULAN-CCS",
+      "name": "College of Computer Studies",
+      "domain": "College Deans",
+      "campus": "Isulan",
+      "contact_email": "ccs@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ELBREN O. ANTONIO, DIT",
+          "position": "Dean, College of Computer Studies",
+          "email": "ccs@sksu.edu.ph",
+          "alternate_email": "elbrenantonio@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ISULAN-ENGINEERING",
+      "name": "College of Engineering",
+      "domain": "College Deans",
+      "campus": "Isulan",
+      "contact_email": "engineering@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ENGR. LENMAR T. CATAJAY, ME",
+          "position": "Dean, College of Engineering",
+          "email": "engineering@sksu.edu.ph",
+          "alternate_email": "lenmarcatajay@sksu.edu.ph"
+        },
+        {
+          "name": "ENGR. KIM TYRONE P. CARDENAS, ME",
+          "position": "Associate Dean, College of Engineering",
+          "email": "engineering@sksu.edu.ph",
+          "alternate_email": "kimtyronecardenas@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ISULAN-INDTECH",
+      "name": "College of Industrial Technology",
+      "domain": "College Deans",
+      "campus": "Isulan",
+      "contact_email": "mgperocho.22@gmail.com",
+      "description": "",
+      "officials": [
+        {
+          "name": "MARY GRACE L. PEROCHO, PhD",
+          "position": "Dean, College of Industrial Technology",
+          "email": "mgperocho.22@gmail.com",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "KALAMANSIG-CCJE",
+      "name": "College of Criminal Justice Education",
+      "domain": "College Deans",
+      "campus": "Kalamansig",
+      "contact_email": "ccjekalamansigcampus@gmail.com",
+      "description": "",
+      "officials": [
+        {
+          "name": "RAMONITO J. NAZARENO, MS",
+          "position": "Acting Dean, College of Criminal Justice Education",
+          "email": "ccjekalamansigcampus@gmail.com",
+          "alternate_email": "ramonitonazareno79@gmail.com"
+        }
+      ]
+    },
+    {
+      "code": "KALAMANSIG-CFNS",
+      "name": "College of Fisheries and Natural Sciences",
+      "domain": "College Deans",
+      "campus": "Kalamansig",
+      "contact_email": "karencatane@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "KAREN L. CATANE, PhD",
+          "position": "Dean, College of Fisheries and Natural Sciences",
+          "email": "karencatane@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "KALAMANSIG-CTE",
+      "name": "College of Teacher Education",
+      "domain": "College Deans",
+      "campus": "Kalamansig",
+      "contact_email": "karencatane@sksu.edu.ph",
+      "description": "Source lists karencatane@sksu.edu.ph for this appointment and for the College of Fisheries and Natural Sciences. Retained as published; verify the contact with the university.",
+      "officials": [
+        {
+          "name": "VICTORINO M. LAVISTE, PhD",
+          "position": "Dean, College of Teacher Education",
+          "email": "karencatane@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "LUTAYAN-AGRICULTURE",
+      "name": "College of Agriculture",
+      "domain": "College Deans",
+      "campus": "Lutayan",
+      "contact_email": "agrideanlutayan@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ENGR. LODIFEL C. DEYPALAN, PhD",
+          "position": "Dean, College of Agriculture",
+          "email": "agrideanlutayan@sksu.edu.ph",
+          "alternate_email": "lodifeldeypalan@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "LUTAYAN-CTE",
+      "name": "College of Teacher Education",
+      "domain": "College Deans",
+      "campus": "Lutayan",
+      "contact_email": "jonathanroque@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "JONATHAN P. ROQUE, PhD",
+          "position": "Dean, College of Teacher Education",
+          "email": "jonathanroque@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "PALIMBANG-AGRIBUSINESS",
+      "name": "College of Agribusiness",
+      "domain": "College Deans",
+      "campus": "Palimbang",
+      "contact_email": "agribusinesspalimbang@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "HASSAN U. TALAPAS, MBA, MPA",
+          "position": "Dean, College of Agribusiness",
+          "email": "agribusinesspalimbang@sksu.edu.ph",
+          "alternate_email": "hassantalapas@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PALIMBANG-CTE",
+      "name": "College of Teacher Education",
+      "domain": "College Deans",
+      "campus": "Palimbang",
+      "contact_email": "hannahdafielmoto@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "HANNAH L. DAFIELMOTO, MAT",
+          "position": "Acting Dean, College of Teacher Education",
+          "email": "hannahdafielmoto@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "TACURONG-CBAHM",
+      "name": "College of Business Administration and Hotel Management",
+      "domain": "College Deans",
+      "campus": "Tacurong",
+      "contact_email": "lovinacogollo@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "LOVINA P. COGOLLO, DBA",
+          "position": "Dean, College of Business Administration and Hotel Management",
+          "email": "lovinacogollo@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "TACURONG-CNS",
+      "name": "College of Natural Sciences",
+      "domain": "College Deans",
+      "campus": "Tacurong",
+      "contact_email": "sionybrunio@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "SIONY S. BRUNIO, PhD",
+          "position": "Dean, College of Natural Sciences",
+          "email": "sionybrunio@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "TACURONG-CSS",
+      "name": "College of Social Sciences",
+      "domain": "College Deans",
+      "campus": "Tacurong",
+      "contact_email": "sksucollegeofsocialsciences@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ANNA ROSE T. MARCELINO, DPA",
+          "position": "Dean, College of Social Sciences",
+          "email": "sksucollegeofsocialsciences@sksu.edu.ph",
+          "alternate_email": "annarosemarcelino@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "CAO-ADMIN",
+      "name": "Administration Division",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "cao@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "LANI B. ALCON, MPA",
+          "position": "Chief Administrative Officer for Administration",
+          "email": "cao@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "CAO-FINANCE",
+      "name": "Finance Division",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "financedivision@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "SHAIRA KARISSA J. CIPRIANO, CPA, MBA",
+          "position": "Chief Administrative Officer for Finance",
+          "email": "financedivision@sksu.edu.ph",
+          "alternate_email": "shairakarissacipriano@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "RESOURCE-GENERATION",
+      "name": "Resource Generation",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "resourcegeneration@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ROSITA T. RIZALDO, PhD",
+          "position": "Director for Resource Generation",
+          "email": "resourcegeneration@sksu.edu.ph",
+          "alternate_email": "rositarizaldo@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "GENERAL-SERVICES",
+      "name": "General Services",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "generalservices@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "CYPREL REY D. ANDRADA, MME",
+          "position": "Acting Director for General Services",
+          "email": "generalservices@sksu.edu.ph",
+          "alternate_email": "cyprelreyandrada@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "PROCUREMENT",
+      "name": "Procurement",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "procurement@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "YVONNE CHARES D. DECOLONGON",
+          "position": "Director for Procurement",
+          "email": "procurement@sksu.edu.ph",
+          "alternate_email": "yvonnecharesdecolongon@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "SUPPLY",
+      "name": "Supply and Property Management",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "cao@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "LANI B. ALCON, MPA",
+          "position": "Acting Director for Supply and Property Management",
+          "email": "cao@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "RECORDS",
+      "name": "Records Office",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "records@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ESTHER S. LANCITA, PhD",
+          "position": "Director for Records Management",
+          "email": "records@sksu.edu.ph",
+          "alternate_email": "estherlancita@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "CASHIER",
+      "name": "University Cashier",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "admincashier@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "TARHATA K. USMAN",
+          "position": "University Cashier",
+          "email": "admincashier@sksu.edu.ph",
+          "alternate_email": "tarhatausman@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "ACCOUNTING",
+      "name": "University Accounting",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "accounting@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "HAZEL MAE B. SULAIMAN, CPA",
+          "position": "Acting University Accountant",
+          "email": "accounting@sksu.edu.ph",
+          "alternate_email": "hazelmaesulaiman@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "BUDGET",
+      "name": "University Budget Office",
+      "domain": "Office of the Vice President for Finance, Administration, and Resource Generation",
+      "campus": "",
+      "contact_email": "reizzamaekusain@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "REIZZA MAE K. IRAN, CPA",
+          "position": "University Budget Officer",
+          "email": "reizzamaekusain@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "RESEARCH",
+      "name": "Research Development",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "rde@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "CYRIL JOHN A. DOMINGO, PhD",
+          "position": "Director for Research Development",
+          "email": "rde@sksu.edu.ph",
+          "alternate_email": "cyriljohndomingo@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "EXTENSION",
+      "name": "Extension Services",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "extensiondivision@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "NANCY B. ESPACIO, EdD",
+          "position": "Director for Extension Services",
+          "email": "extensiondivision@sksu.edu.ph",
+          "alternate_email": "nancyespacio@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "COFFEE",
+      "name": "Coffee Center",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "coffeecenter@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "SAMUEL MORS D. HILBERO, MS",
+          "position": "Director for Coffee Center",
+          "email": "coffeecenter@sksu.edu.ph",
+          "alternate_email": "samuelhilbero@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "TBIC",
+      "name": "Technology Business Incubation Center",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "tbi@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "CHARMIE L. ANCHETA, DBA",
+          "position": "Director for Technology Business Incubation Center",
+          "email": "tbi@sksu.edu.ph",
+          "alternate_email": "charmieancheta@sksu.edu.ph"
+        }
+      ]
+    },
+    {
+      "code": "TECH-COMMERCIALIZATION",
+      "name": "Technology Protection and Commercialization",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "mitosdelco@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "MITOS D. DELCO, PhD",
+          "position": "Director for Technology Protection and Commercialization",
+          "email": "mitosdelco@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    },
+    {
+      "code": "HALAL",
+      "name": "Halal Innovation Center",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "halal@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "ANNIERAH M. USOP, PhD",
+          "position": "Director for Halal Innovation Center",
+          "email": "halal@sksu.edu.ph",
+          "alternate_email": "annierah0921@yahoo.com"
+        }
+      ]
+    },
+    {
+      "code": "FOOD-INNOVATION",
+      "name": "Food Innovation and Technology Center",
+      "domain": "Office of the Vice President for Research, Extension, and Innovation",
+      "campus": "",
+      "contact_email": "realynpahunar@sksu.edu.ph",
+      "description": "",
+      "officials": [
+        {
+          "name": "REALYN A. PAHUNAR, MAT",
+          "position": "Director for Food Innovation and Technology Center",
+          "email": "realynpahunar@sksu.edu.ph",
+          "alternate_email": ""
+        }
+      ]
+    }
+  ]
+}

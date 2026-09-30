@@ -7,6 +7,7 @@
  */
 
 define('PAD_ROOT', dirname(__DIR__));
+require_once __DIR__ . '/GoogleIdentity.php';
 
 load_environment(PAD_ROOT . DIRECTORY_SEPARATOR . '.env');
 
@@ -74,7 +75,6 @@ function apply_cors()
     if ($origin !== '' && in_array($origin, $allowed, true)) {
         header('Access-Control-Allow-Origin: ' . $origin);
         header('Vary: Origin');
-        header('Access-Control-Allow-Credentials: false');
         header('Access-Control-Allow-Headers: Authorization, Content-Type');
         header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     }
@@ -200,22 +200,23 @@ function current_user()
 {
     $header = authorization_header();
     if (!preg_match('/^Bearer\\s+(.+)$/i', $header, $matches)) {
-        api_error('Authentication is required.', 401);
+        throw new AuthenticationException('Authentication is required.', 401);
     }
 
     $parts = explode('.', $matches[1]);
     if (count($parts) !== 3) {
-        api_error('Your session is invalid.', 401);
+        throw new AuthenticationException('Your session is invalid.', 401);
     }
 
     $expected = base64url_encode(hash_hmac('sha256', $parts[0] . '.' . $parts[1], session_secret(), true));
     if (!hash_equals($expected, $parts[2])) {
-        api_error('Your session is invalid.', 401);
+        throw new AuthenticationException('Your session is invalid.', 401);
     }
 
     $claims = json_decode(base64url_decode($parts[1]), true);
-    if (!is_array($claims) || !isset($claims['sub'], $claims['exp']) || $claims['exp'] < time()) {
-        api_error('Your session has expired.', 401);
+    if (!is_array($claims) || !isset($claims['sub'], $claims['exp']) || $claims['exp'] <= time()
+        || ($claims['iss'] ?? '') !== env_value('APP_URL', 'pad-api')) {
+        throw new AuthenticationException('Your session has expired. Please sign in again.', 401);
     }
 
     $statement = database()->prepare(
@@ -226,9 +227,11 @@ function current_user()
     $user = $statement->fetch();
 
     if (!$user || !(int) $user['is_active']) {
-        api_error('This account is not active.', 403);
+        throw new AuthenticationException('This account is not active.', 401);
     }
 
+    // Removal from the account list also ends access for existing PAD sessions.
+    assert_allowed_account_email($user['email'], 401);
     return $user;
 }
 
@@ -246,43 +249,8 @@ function require_administrator($user)
 
 function google_token_info($credential)
 {
-    $url = 'https://oauth2.googleapis.com/tokeninfo?id_token=' . rawurlencode($credential);
-    $response = false;
-
-    if (function_exists('curl_init')) {
-        $curl = curl_init($url);
-        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($curl, CURLOPT_TIMEOUT, 10);
-        curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, true);
-        $response = curl_exec($curl);
-        $status = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        curl_close($curl);
-        if ($status !== 200) {
-            $response = false;
-        }
-    } elseif (ini_get('allow_url_fopen')) {
-        $response = @file_get_contents($url);
-    }
-
-    if ($response === false) {
-        api_error('Google could not verify this sign-in. Please try again.', 401);
-    }
-
-    $claims = json_decode($response, true);
-    if (!is_array($claims)) {
-        api_error('Google sign-in could not be validated.', 401);
-    }
-
-    $clientId = env_value('GOOGLE_CLIENT_ID');
-    $issuer = isset($claims['iss']) ? $claims['iss'] : '';
-    $emailVerified = isset($claims['email_verified']) ? filter_var($claims['email_verified'], FILTER_VALIDATE_BOOLEAN) : false;
-    $allowedIssuers = array('accounts.google.com', 'https://accounts.google.com');
-
-    if (!$clientId || !isset($claims['aud']) || !hash_equals($clientId, $claims['aud']) || empty($claims['email']) || !$emailVerified || !in_array($issuer, $allowedIssuers, true)) {
-        api_error('Google sign-in could not be validated.', 401);
-    }
-
-    return $claims;
+    $verifier = new GoogleIdentity(env_value('GOOGLE_CLIENT_ID'), 'google_signing_certificates');
+    return $verifier->verify($credential);
 }
 
 function sql_identifier($value, $label)
@@ -296,24 +264,32 @@ function sql_identifier($value, $label)
     return '`' . $value . '`';
 }
 
-function assert_allowed_account_email($email)
+function assert_allowed_account_email($email, $status = 403)
 {
     $table = sql_identifier(env_value('AUTH_ACCOUNT_TABLE', 'tblaccount'), 'AUTH_ACCOUNT_TABLE');
-    $column = sql_identifier(env_value('AUTH_ACCOUNT_EMAIL_COLUMN', 'email'), 'AUTH_ACCOUNT_EMAIL_COLUMN');
-    $statement = database()->prepare('SELECT 1 FROM ' . $table . ' WHERE LOWER(' . $column . ') = LOWER(?) LIMIT 1');
-    $statement->execute(array($email));
+    $column = sql_identifier(env_value('AUTH_ACCOUNT_EMAIL_COLUMN', 'acc_email'), 'AUTH_ACCOUNT_EMAIL_COLUMN');
+    $statement = database()->prepare('SELECT 1 FROM ' . $table . ' WHERE LOWER(TRIM(' . $column . ')) = LOWER(?) LIMIT 1');
+    $statement->execute(array(trim($email)));
 
     if ($statement->fetchColumn() === false) {
-        api_error('Your Google account is not authorized to use PAD. Ask the Records Office to add your email to the account list.', 403);
+        throw new AuthenticationException('Your Google account is not authorized to use PAD. Ask the Records Office to add your email to the account list.', $status);
     }
 }
 
 function authenticate_google_user($credential)
 {
-    $claims = google_token_info($credential);
+    return sync_google_user(google_token_info($credential));
+}
+
+// Only call after cryptographic verification of the Google credential.
+function sync_google_user($claims)
+{
     $email = strtolower(trim($claims['email']));
-    $name = isset($claims['name']) ? trim($claims['name']) : $email;
-    $avatar = isset($claims['picture']) ? $claims['picture'] : null;
+    $name = isset($claims['name']) && is_string($claims['name']) ? trim($claims['name']) : '';
+    $name = $name !== '' ? $name : $email;
+    $name = function_exists('mb_substr') ? mb_substr($name, 0, 160, 'UTF-8') : substr($name, 0, 160);
+    $avatar = isset($claims['picture']) && is_string($claims['picture']) && strlen($claims['picture']) <= 500
+        && strpos($claims['picture'], 'https://') === 0 ? $claims['picture'] : null;
 
     // tblaccount is the authoritative allow-list. Google verification alone never creates access.
     assert_allowed_account_email($email);
@@ -322,21 +298,35 @@ function authenticate_google_user($credential)
     $firstAdminEmail = strtolower(trim(env_value('FIRST_ADMIN_EMAIL', '')));
     $isFirstAdministrator = $firstAdminEmail !== '' && hash_equals($firstAdminEmail, $email);
 
-    $find = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
-    $find->execute(array($email));
+    $find = $pdo->prepare('SELECT id, google_subject, is_active FROM users WHERE google_subject = ? LIMIT 1');
+    $find->execute(array($claims['sub']));
     $existing = $find->fetch();
+    if (!$existing) {
+        $find = $pdo->prepare('SELECT id, google_subject, is_active FROM users WHERE email = ? LIMIT 1');
+        $find->execute(array($email));
+        $existing = $find->fetch();
+    }
 
     if ($existing) {
-        // The configured first administrator remains an administrator even when
-        // the profile was created before FIRST_ADMIN_EMAIL was configured.
-        $update = $pdo->prepare("UPDATE users SET name = ?, avatar_url = ?, google_subject = ?, role = IF(?, 'admin', role), last_login_at = NOW() WHERE id = ?");
-        $update->execute(array($name, $avatar, isset($claims['sub']) ? $claims['sub'] : null, $isFirstAdministrator ? 1 : 0, $existing['id']));
+        if (!(int) $existing['is_active']) {
+            throw new AuthenticationException('This account is not active.', 403);
+        }
+        if ($existing['google_subject'] && !hash_equals($existing['google_subject'], $claims['sub'])) {
+            throw new AuthenticationException('This email is linked to a different Google account. Contact the Records Office.', 403);
+        }
+        $conflict = $pdo->prepare('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1');
+        $conflict->execute(array($email, $existing['id']));
+        if ($conflict->fetch()) {
+            throw new AuthenticationException('This email is linked to another PAD profile. Contact the Records Office.', 403);
+        }
+        $update = $pdo->prepare('UPDATE users SET name = ?, email = ?, avatar_url = ?, google_subject = ?, last_login_at = NOW(), updated_at = NOW() WHERE id = ?');
+        $update->execute(array($name, $email, $avatar, $claims['sub'], $existing['id']));
         return $existing['id'];
     }
 
     $role = $isFirstAdministrator ? 'admin' : 'staff';
     $insert = $pdo->prepare("INSERT INTO users (name, email, avatar_url, google_subject, role, is_active, last_login_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW(), NOW())");
-    $insert->execute(array($name, $email, $avatar, isset($claims['sub']) ? $claims['sub'] : null, $role));
+    $insert->execute(array($name, $email, $avatar, $claims['sub'], $role));
     return (int) $pdo->lastInsertId();
 }
 

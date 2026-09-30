@@ -5,6 +5,9 @@ require_once dirname(__DIR__) . '/src/bootstrap.php';
 apply_cors();
 
 set_exception_handler(function ($exception) {
+    if ($exception instanceof ApiException) {
+        api_error($exception->getMessage(), $exception->getCode());
+    }
     api_error('An unexpected server error occurred.', 500, $exception->getMessage());
 });
 
@@ -27,11 +30,13 @@ if ($method === 'GET' && $path === '/api/health') {
 }
 
 if ($method === 'GET' && $path === '/api/auth/google/config') {
+    header('Cache-Control: no-store');
     $clientId = env_value('GOOGLE_CLIENT_ID');
     json_response(array('enabled' => !empty($clientId) && strpos($clientId, 'your-google') !== 0, 'client_id' => $clientId));
 }
 
 if ($method === 'POST' && $path === '/api/auth/google') {
+    header('Cache-Control: no-store');
     $payload = request_json();
     if (empty($payload['credential']) || !is_string($payload['credential'])) {
         api_error('Google credential is required.', 422);
@@ -57,17 +62,7 @@ if ($method === 'GET' && $path === '/api/me') {
     json_response(array('user' => $user));
 }
 
-if ($method === 'GET' && $path === '/api/admin/overview') {
-    require_administrator($user);
-    $pdo = database();
-    $overview = array(
-        'users' => (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(),
-        'active_users' => (int) $pdo->query('SELECT COUNT(*) FROM users WHERE is_active = 1')->fetchColumn(),
-        'offices' => (int) $pdo->query('SELECT COUNT(*) FROM offices WHERE is_active = 1')->fetchColumn(),
-        'documents' => (int) $pdo->query('SELECT COUNT(*) FROM documents')->fetchColumn()
-    );
-    json_response(array('data' => $overview));
-}
+require_once dirname(__DIR__) . '/src/admin-routes.php';
 
 if ($method === 'GET' && $path === '/api/admin/users') {
     require_administrator($user);
@@ -120,83 +115,16 @@ if (preg_match('#^/api/admin/users/([0-9]+)$#', $path, $matches) && $method === 
     json_response(array('message' => 'User access updated.'));
 }
 
-if ($method === 'GET' && $path === '/api/admin/offices') {
-    require_administrator($user);
-    $statement = database()->query(
-        'SELECT offices.id, offices.code, offices.name, offices.description, offices.is_active, offices.created_at,
-         COUNT(users.id) AS user_count
-         FROM offices
-         LEFT JOIN users ON users.office_id = offices.id
-         GROUP BY offices.id, offices.code, offices.name, offices.description, offices.is_active, offices.created_at
-         ORDER BY offices.is_active DESC, offices.name ASC'
-    );
-    json_response(array('data' => $statement->fetchAll()));
-}
-
-if ($method === 'POST' && $path === '/api/admin/offices') {
-    require_administrator($user);
-    $payload = request_json();
-    $code = strtoupper(trim(isset($payload['code']) ? $payload['code'] : ''));
-    $name = trim(isset($payload['name']) ? $payload['name'] : '');
-    $description = isset($payload['description']) ? trim($payload['description']) : null;
-
-    if (!preg_match('/^[A-Z0-9_-]{2,30}$/', $code)) {
-        api_error('Office code must use 2 to 30 capital letters, numbers, hyphens, or underscores.', 422);
-    }
-    if ($name === '' || strlen($name) > 160) {
-        api_error('Office name is required and must be 160 characters or fewer.', 422);
-    }
-
-    $pdo = database();
-    $duplicate = $pdo->prepare('SELECT id FROM offices WHERE code = ? LIMIT 1');
-    $duplicate->execute(array($code));
-    if ($duplicate->fetch()) {
-        api_error('That office code is already in use.', 409);
-    }
-
-    $insert = $pdo->prepare('INSERT INTO offices (code, name, description, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, NOW(), NOW())');
-    $insert->execute(array($code, $name, $description === '' ? null : $description));
-    json_response(array('message' => 'Office created.', 'id' => (int) $pdo->lastInsertId()), 201);
-}
-
-if (preg_match('#^/api/admin/offices/([0-9]+)$#', $path, $matches) && $method === 'POST') {
-    require_administrator($user);
-    $payload = request_json();
-    $officeId = (int) $matches[1];
-    $pdo = database();
-    $find = $pdo->prepare('SELECT id, code, name, description, is_active FROM offices WHERE id = ? LIMIT 1');
-    $find->execute(array($officeId));
-    $office = $find->fetch();
-    if (!$office) {
-        api_error('Office not found.', 404);
-    }
-
-    $name = isset($payload['name']) ? trim($payload['name']) : $office['name'];
-    $description = array_key_exists('description', $payload) ? trim($payload['description']) : $office['description'];
-    $isActive = array_key_exists('is_active', $payload) ? (filter_var($payload['is_active'], FILTER_VALIDATE_BOOLEAN) ? 1 : 0) : (int) $office['is_active'];
-
-    if ($name === '' || strlen($name) > 160) {
-        api_error('Office name is required and must be 160 characters or fewer.', 422);
-    }
-    if (($office['code'] === 'RECORDS' || $office['code'] === 'PAD') && $isActive !== 1) {
-        api_error('Records Office and Presidential Action Desk must remain active.', 422);
-    }
-
-    $update = $pdo->prepare('UPDATE offices SET name = ?, description = ?, is_active = ?, updated_at = NOW() WHERE id = ?');
-    $update->execute(array($name, $description === '' ? null : $description, $isActive, $officeId));
-    json_response(array('message' => 'Office updated.'));
-}
-
 if ($method === 'GET' && $path === '/api/admin/access-list') {
     require_administrator($user);
     $table = sql_identifier(env_value('AUTH_ACCOUNT_TABLE', 'tblaccount'), 'AUTH_ACCOUNT_TABLE');
-    $column = sql_identifier(env_value('AUTH_ACCOUNT_EMAIL_COLUMN', 'email'), 'AUTH_ACCOUNT_EMAIL_COLUMN');
+    $column = sql_identifier(env_value('AUTH_ACCOUNT_EMAIL_COLUMN', 'acc_email'), 'AUTH_ACCOUNT_EMAIL_COLUMN');
     $statement = database()->query('SELECT ' . $column . ' AS email FROM ' . $table . ' WHERE ' . $column . ' IS NOT NULL AND TRIM(' . $column . ") <> '' ORDER BY " . $column . ' ASC LIMIT 500');
     json_response(array('data' => $statement->fetchAll()));
 }
 
 if ($method === 'GET' && $path === '/api/offices') {
-    $offices = database()->query('SELECT id, code, name, description FROM offices WHERE is_active = 1 ORDER BY name ASC')->fetchAll();
+    $offices = database()->query('SELECT id, code, name, description, campus, domain, contact_email FROM offices WHERE is_active = 1 ORDER BY campus, name')->fetchAll();
     json_response(array('data' => $offices));
 }
 
