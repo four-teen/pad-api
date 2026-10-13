@@ -1,7 +1,23 @@
 .env
 .env.*
 !.env.example
+# Runtime data and local inspection output must stay private.
+/storage/*
+!/storage/documents/
 /storage/documents/*
 !/storage/documents/.gitignore
 /.phpunit.result.cache
 /storage/google-certificates.json
+/storage/maintenance-backups/
+
+# Local backups, logs, signing keys, and OpenSSL seed files.
+.rnd
+*.log
+*.bak
+*.backup
+*.sql.gz
+*.sql.zip
+*.pem
+*.key
+*.p12
+*.pfx

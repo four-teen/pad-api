@@ -68,7 +68,8 @@ $db = database();
 foreach (array('users', 'offices') as $table) {
     $definition = $db->query('SHOW CREATE TABLE `' . $table . '`')->fetch(PDO::FETCH_NUM)[1];
     // MySQL temporary tables cannot use foreign keys or LIKE their own name.
-    $definition = preg_replace('/,\n\s+CONSTRAINT[^\n]+/', '', $definition);
+    $definition = preg_replace('/^\s+CONSTRAINT[^\r\n]+\R?/m', '', $definition);
+    $definition = preg_replace('/,\s*(\) ENGINE=)/', '$1', $definition);
     $db->exec(preg_replace('/^CREATE TABLE/', 'CREATE TEMPORARY TABLE', $definition));
 }
 $db->exec('CREATE TEMPORARY TABLE pad_auth_test_accounts (acc_email VARCHAR(191))');
@@ -79,7 +80,7 @@ $db->exec("INSERT INTO pad_auth_test_accounts VALUES (' Allowed@Example.Test '),
 
 $id = sync_google_user($verifier->verify($sign($claims)));
 $user = $db->query('SELECT * FROM users WHERE id = ' . (int) $id)->fetch();
-check($user['role'] === 'staff' && $user['email'] === 'allowed@example.test', 'An allowed email creates a staff profile.');
+check($user['role'] === 'router' && $user['email'] === 'allowed@example.test', 'An allowed email creates a Router profile.');
 check((int) sync_google_user($claims) === (int) $id, 'Repeated login reuses the profile.');
 check((int) $db->query('SELECT COUNT(*) FROM users')->fetchColumn() === 1, 'Repeated login does not duplicate profiles.');
 

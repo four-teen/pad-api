@@ -1,5 +1,6 @@
 Options -Indexes
 RewriteEngine On
+RewriteRule (^|/)\. - [F,L]
 
 # Preserve bearer tokens for Apache CGI/FastCGI hosting.
 RewriteCond %{HTTP:Authorization} .

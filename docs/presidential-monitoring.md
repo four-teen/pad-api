@@ -1,0 +1,22 @@
+# University President monitoring
+
+The presidential workspace is available when the account's active SKSU routing office has the immutable code **OP** (Office of the University President), regardless of its position title. Select SKSU Officials and assign that office through existing account management. The matching account receives a computed `university_president` view in place of SKSU Officials. No new database role, migration, or account rewrite is required.
+
+The office comes from the user's stored routing assignment. Neither JWT claims nor a requested role header establish eligibility. Changing the routing assignment or deactivating the office revokes that view on the next authenticated request. Display-name and position changes do not change office-based access. Other explicitly assigned roles remain selectable through the normal role picker and use their own office assignments.
+
+OP is monitoring only. Register Document is unavailable for OP, and registration recipients, routing destinations, Act & send owners, and returns cannot target OP. Documents are accepted by the configured OVP PAD receiving office. The ordinary office catalogue keeps OP for historical monitoring and marks it with `can_receive_documents: false`; receiving-office selectors exclude it. Other SKSU offices retain registration and routing. OVP PAD and Central Records assignments cannot use OP as their operational office.
+
+The separate `#president` workspace uses SKSU green, ivory surfaces, and luminous orange accents. It contains Executive overview, Office workload, and Document monitor. Phones use bottom navigation, collapsible reporting filters, and document cards; tablets and desktops adapt the grids and document table. Document journeys display recorded events newest first in Manila time. Attachments can be downloaded.
+
+Read-only endpoints:
+
+- `GET /api/president/statistics`: shared university-wide aggregates and up to ten oldest pending documents across offices.
+- `GET /api/president/offices`: active and inactive offices for historical monitoring.
+- `GET /api/president/documents`: paginated registry, searchable by particulars, reference, type, sender, and office. Status and office-participation filters are server-side. Dates in the report do not filter the registry.
+- `GET /api/president/documents/{reference}`: recorded document details, journey, personnel, travel details, and PAD decision.
+
+Statistics reuse the definitions in [document-statistics.md](document-statistics.md). The Overview starts with one card per document type showing its distinct recorded Act count for the reporting period. `acted_type_breakdown` includes active configured types with zero counts and types retained in document history. Counts use Act dates, keep the milestone after delivery, and do not count repeated Acts twice; their sum matches `period.acted`. This field is populated for presidential monitoring only, and ordinary registration type reports keep their definitions. Current workload includes all registration dates; selected dates filter activity. Correction results delivered to their owner remain pending work. Office timelines include historical participation, while workload counts belong to the current holder or receiving office. Acted filtering retains a recorded Act after later delivery. Pending age is calendar days at the current stage, not an invented deadline.
+
+The public API rejects non-GET requests in the presidential role. The document service independently blocks registration, file uploads, deletion, and every action method, and returns false for every document action permission. Operational `/api/doc_router/` endpoints and administrator endpoints reject this role. Responses use `Cache-Control: no-store`; frontend role changes and sign-out invalidate outstanding responses and clear monitored content.
+
+Validation: `php tests/president-smoke.php` exercises the real HTTP entry point and services in a generated test database, including office changes, forged headers, cross-office reads, mutation denials, unchanged routing history, rejected OP destinations, and ordinary-office registration followed by PAD receipt. `pad-web` tests cover separate login, role switching, OP registration controls, ordinary-office controls, receiving-office selectors, escaped values, failed refreshes, request races, and monitoring-only document detail. `node tests/president-preview-server.js` serves invented browser QA data at `http://localhost:5186/#president` without contacting the live PAD API.

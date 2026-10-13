@@ -1,0 +1,6 @@
+Options -Indexes
+RewriteEngine On
+
+# The API front controller is public; credentials, uploads, and source are not.
+RewriteRule ^public(?:/|$) - [L]
+RewriteRule ^ - [F,L]

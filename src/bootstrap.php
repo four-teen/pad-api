@@ -1,7 +1,7 @@
 <?php
 
 /**
- * PAD API bootstrap. Deliberately dependency-free for cPanel hosting.
+ * PAD API bootstrap. Deliberately dependency-free for Apache/PHP hosting.
  * Compatible with PHP 7.4+ and MySQL/MariaDB installations commonly available
  * on shared hosting.
  */
@@ -45,6 +45,90 @@ function env_value($key, $default = null)
     return $value === false ? $default : $value;
 }
 
+function module_office_ids()
+{
+    $pad = filter_var(env_value('PAD_OVP_PAD_OFFICE_ID', '3'), FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+    $records = filter_var(env_value('PAD_CENTRAL_RECORDS_OFFICE_ID', '2'), FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+    if ($pad === false || $records === false || $pad === $records) {
+        api_error('OVP module office configuration is invalid.', 500);
+    }
+    return array('ovp_pad' => (int) $pad, 'ovp_central_records' => (int) $records);
+}
+
+function apply_active_module_office(array $user)
+{
+    $assignments = account_role_office_ids($user);
+    $user['sksu_office_id'] = $user['sksu_office_id'] ?? $user['office_id'] ?? null;
+    $user['sksu_office_code'] = $user['sksu_office_code'] ?? $user['office_code'] ?? null;
+    $user['sksu_office_is_active'] = $user['sksu_office_is_active'] ?? $user['office_is_active'] ?? null;
+    $user['role_offices'] = array();
+    $ids = array_values(array_unique(array_filter($assignments)));
+    $offices = array();
+    if ($ids) {
+        $query = database()->prepare('SELECT id, code, name, campus, is_active,
+            EXISTS (SELECT 1 FROM office_officials f WHERE f.office_id = offices.id) AS office_has_officials
+            FROM offices WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+        $query->execute($ids);
+        foreach ($query->fetchAll() as $office) $offices[(int) $office['id']] = $office;
+    }
+    foreach (account_roles($user) as $role) {
+        if (array_key_exists($role, $assignments)) $user['role_offices'][$role] = $offices[$assignments[$role]] ?? null;
+    }
+    $activeRole = $user['active_role'] ?? null;
+    if (!in_array($activeRole, array('ovp_pad', 'ovp_central_records'), true)) {
+        return $user;
+    }
+
+    $officeId = $assignments[$activeRole];
+    $details = $user['role_offices'][$activeRole] ?? null;
+    if (!$details || !(int) $details['is_active']) {
+        throw new ApiException('No active routing office is assigned for ' . ($activeRole === 'ovp_pad' ? 'OVP PAD' : 'OVP Central Records') . '. Ask an administrator to select its routing office in your account.', 403);
+    }
+    $user['office_id'] = $officeId;
+    $user['office_code'] = $details['code'] ?? null;
+    $user['office_name'] = $details['name'] ?? null;
+    $user['office_campus'] = $details['campus'] ?? null;
+    $user['office_has_officials'] = $details ? (bool) $details['office_has_officials'] : false;
+    return $user;
+}
+
+function account_role_office_ids(array $user)
+{
+    return array(
+        'university_president' => president_eligible($user) ? (int) ($user['sksu_office_id'] ?? $user['office_id']) : null,
+        'ovp_pad' => !empty($user['ovp_pad_office_id']) ? (int) $user['ovp_pad_office_id'] : null,
+        'ovp_central_records' => !empty($user['ovp_central_records_office_id']) ? (int) $user['ovp_central_records_office_id'] : null,
+        'sksu_officials' => !empty($user['sksu_office_id'] ?? $user['office_id'] ?? null) ? (int) ($user['sksu_office_id'] ?? $user['office_id']) : null
+    );
+}
+
+function is_presidential_office(array $office)
+{
+    // OP is the immutable office code. Its display name and personnel positions
+    // may change without changing the monitoring-only office identity.
+    return strtoupper(trim($office['code'] ?? $office['office_code'] ?? '')) === 'OP';
+}
+
+function president_eligible(array $user)
+{
+    return !empty($user['sksu_office_id'] ?? $user['office_id'] ?? null)
+        && !empty($user['sksu_office_is_active'] ?? $user['office_is_active'] ?? null)
+        && is_presidential_office(array('code' => $user['sksu_office_code'] ?? $user['office_code'] ?? ''));
+}
+
+function is_presidential_view(array $user)
+{
+    return ($user['active_role'] ?? '') === 'university_president'
+        && in_array('university_president', account_roles($user), true);
+}
+
+function assert_monitoring_method(array $user, $method)
+{
+    if (is_presidential_view($user) && $method !== 'GET') {
+        throw new ApiException('The presidential view is monitoring only. Document and administrative changes are unavailable.', 403);
+    }
+}
+
 function app_is_debug()
 {
     return filter_var(env_value('APP_DEBUG', 'false'), FILTER_VALIDATE_BOOLEAN);
@@ -75,8 +159,8 @@ function apply_cors()
     if ($origin !== '' && in_array($origin, $allowed, true)) {
         header('Access-Control-Allow-Origin: ' . $origin);
         header('Vary: Origin');
-        header('Access-Control-Allow-Headers: Authorization, Content-Type');
-        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+        header('Access-Control-Allow-Headers: Authorization, Content-Type, X-PAD-Role');
+        header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
 
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -220,7 +304,8 @@ function current_user()
     }
 
     $statement = database()->prepare(
-        'SELECT users.id, users.email, users.name, users.avatar_url, users.role, users.office_id, users.is_active, offices.code AS office_code, offices.name AS office_name
+        'SELECT users.id, users.email, users.name, users.avatar_url, users.role, users.roles, users.office_id, users.ovp_pad_office_id, users.ovp_central_records_office_id, users.is_active, offices.code AS office_code, offices.name AS office_name, offices.campus AS office_campus, offices.is_active AS office_is_active,
+         EXISTS (SELECT 1 FROM office_officials f WHERE f.office_id = users.office_id) AS office_has_officials
          FROM users LEFT JOIN offices ON offices.id = users.office_id WHERE users.id = ? LIMIT 1'
     );
     $statement->execute(array((int) $claims['sub']));
@@ -229,20 +314,73 @@ function current_user()
     if (!$user || !(int) $user['is_active']) {
         throw new AuthenticationException('This account is not active.', 401);
     }
+    if (strtolower($claims['email'] ?? '') !== strtolower($user['email'])) {
+        throw new AuthenticationException('Your login email has changed. Please sign in again.', 401);
+    }
 
     // Removal from the account list also ends access for existing PAD sessions.
     assert_allowed_account_email($user['email'], 401);
-    return $user;
+    $user['roles'] = account_roles($user);
+    $selected = trim($_SERVER['HTTP_X_PAD_ROLE'] ?? '');
+    if ($selected !== '' && !in_array($selected, $user['roles'], true)) {
+        throw new ApiException('Your selected account role is no longer assigned. Choose another account role.', 403);
+    }
+    $user['active_role'] = $selected !== '' ? $selected : (count($user['roles']) === 1 ? $user['roles'][0] : null);
+    return apply_active_module_office($user);
+}
+
+function account_roles(array $user)
+{
+    $allowed = array('admin', 'ovp_pad', 'ovp_central_records', 'sksu_officials');
+    if (array_key_exists('roles', $user) && $user['roles'] !== null) {
+        $stored = is_array($user['roles']) ? $user['roles'] : explode(',', $user['roles']);
+    } else {
+        $stored = array(($user['role'] ?? 'router') === 'admin' ? 'admin' : 'router');
+    }
+    $roles = array_values(array_intersect($allowed, $stored));
+    $legacyRouter = in_array('router', $stored, true);
+    $hasModuleRole = count(array_intersect(array('ovp_pad', 'ovp_central_records', 'sksu_officials'), $roles)) > 0;
+    if ($legacyRouter && !$hasModuleRole && !empty($user['office_id']) && !president_eligible($user)) {
+        $officeIds = module_office_ids();
+        $officeId = (int) $user['office_id'];
+        if ($officeId === $officeIds['ovp_pad']) {
+            $roles[] = 'ovp_pad';
+        } elseif ($officeId === $officeIds['ovp_central_records']) {
+            $roles[] = 'ovp_central_records';
+        } else {
+            $hasOfficials = array_key_exists('office_has_officials', $user)
+                ? (bool) $user['office_has_officials']
+                : false;
+            if (!array_key_exists('office_has_officials', $user)) {
+                $check = database()->prepare('SELECT 1 FROM office_officials WHERE office_id = ? LIMIT 1');
+                $check->execute(array($officeId));
+                $hasOfficials = (bool) $check->fetchColumn();
+            }
+            if ($hasOfficials) $roles[] = 'sksu_officials';
+        }
+    }
+    if (president_eligible($user)) {
+        $roles = array_values(array_diff($roles, array('sksu_officials')));
+        $roles[] = 'university_president';
+        $allowed[] = 'university_president';
+    }
+    return array_values(array_intersect($allowed, array_unique($roles)));
+}
+
+function is_administrator(array $user)
+{
+    return in_array('admin', account_roles($user), true)
+        && (!array_key_exists('active_role', $user) || $user['active_role'] === 'admin');
 }
 
 function is_records_user($user)
 {
-    return $user['role'] === 'admin' || $user['role'] === 'records' || $user['office_code'] === 'RECORDS';
+    return is_administrator($user) || (($user['active_role'] ?? '') === 'ovp_central_records');
 }
 
 function require_administrator($user)
 {
-    if (!isset($user['role']) || $user['role'] !== 'admin') {
+    if (!is_administrator($user)) {
         api_error('Administrator access is required.', 403);
     }
 }
@@ -298,11 +436,11 @@ function sync_google_user($claims)
     $firstAdminEmail = strtolower(trim(env_value('FIRST_ADMIN_EMAIL', '')));
     $isFirstAdministrator = $firstAdminEmail !== '' && hash_equals($firstAdminEmail, $email);
 
-    $find = $pdo->prepare('SELECT id, google_subject, is_active FROM users WHERE google_subject = ? LIMIT 1');
+    $find = $pdo->prepare('SELECT id, name, google_subject, is_active FROM users WHERE google_subject = ? LIMIT 1');
     $find->execute(array($claims['sub']));
     $existing = $find->fetch();
     if (!$existing) {
-        $find = $pdo->prepare('SELECT id, google_subject, is_active FROM users WHERE email = ? LIMIT 1');
+        $find = $pdo->prepare('SELECT id, name, google_subject, is_active FROM users WHERE email = ? LIMIT 1');
         $find->execute(array($email));
         $existing = $find->fetch();
     }
@@ -320,13 +458,13 @@ function sync_google_user($claims)
             throw new AuthenticationException('This email is linked to another PAD profile. Contact the Records Office.', 403);
         }
         $update = $pdo->prepare('UPDATE users SET name = ?, email = ?, avatar_url = ?, google_subject = ?, last_login_at = NOW(), updated_at = NOW() WHERE id = ?');
-        $update->execute(array($name, $email, $avatar, $claims['sub'], $existing['id']));
+        $update->execute(array($existing['name'] ?: $name, $email, $avatar, $claims['sub'], $existing['id']));
         return $existing['id'];
     }
 
-    $role = $isFirstAdministrator ? 'admin' : 'staff';
-    $insert = $pdo->prepare("INSERT INTO users (name, email, avatar_url, google_subject, role, is_active, last_login_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW(), NOW())");
-    $insert->execute(array($name, $email, $avatar, $claims['sub'], $role));
+    $role = $isFirstAdministrator ? 'admin' : 'router';
+    $insert = $pdo->prepare("INSERT INTO users (name, email, avatar_url, google_subject, role, roles, is_active, last_login_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW(), NOW())");
+    $insert->execute(array($name, $email, $avatar, $claims['sub'], $role, $role));
     return (int) $pdo->lastInsertId();
 }
 
@@ -380,7 +518,7 @@ function document_record($reference, $user)
 function document_history($documentId)
 {
     $statement = database()->prepare(
-        'SELECT r.id, r.action, r.notes, r.dispatched_at, r.received_at, r.created_at,
+        'SELECT r.id, r.action, r.notes, r.from_office_id, r.to_office_id, r.dispatched_at, r.received_at, r.created_at,
          origin.name AS origin_office_name, destination.name AS destination_office_name,
          actor.name AS acted_by_name
          FROM document_routes r
