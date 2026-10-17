@@ -1,9 +1,18 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/tnrmssks25/pad-api.sksu-orms.net/
-    - /bin/mkdir -p $DEPLOYPATH/public
-    - /bin/mkdir -p $DEPLOYPATH/src
-    - /bin/cp -a .htaccess $DEPLOYPATH/.htaccess
-    - /bin/cp -a public/. $DEPLOYPATH/public/
-    - /bin/cp -a src/. $DEPLOYPATH/src/
+    # Verify this application folder in cPanel before the first deployment.
+    # Preferred domain document root: $DEPLOYPATH/public.
+    - export DEPLOYPATH=/home/tnrmssks25/padapi.sksu-orms.net
+    - /bin/mkdir -p "$DEPLOYPATH/public" "$DEPLOYPATH/src" "$DEPLOYPATH/scripts" "$DEPLOYPATH/database"
+    - /bin/mkdir -p "$DEPLOYPATH/storage/documents" "$DEPLOYPATH/storage/maintenance-backups"
+    - /bin/chmod 750 "$DEPLOYPATH/storage" "$DEPLOYPATH/storage/documents"
+    - /bin/chmod 700 "$DEPLOYPATH/storage/maintenance-backups"
+    - /bin/cp -a .htaccess "$DEPLOYPATH/.htaccess"
+    - /bin/cp -a public/. "$DEPLOYPATH/public/"
+    - /bin/cp -a src/. "$DEPLOYPATH/src/"
+    - /bin/cp -a scripts/. "$DEPLOYPATH/scripts/"
+    - /bin/cp -a database/. "$DEPLOYPATH/database/"
+    - /bin/cp -a .env.example "$DEPLOYPATH/.env.example"
+    # .env, uploads, certificate cache, and recovery backups are never copied.
+    # Database setup is run explicitly after reviewing the hosting database.
