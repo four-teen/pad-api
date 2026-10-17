@@ -19,26 +19,31 @@ AUTH_ACCOUNT_EMAIL_COLUMN=acc_email
 
 Import `database/schema.sql` once for a new database. For an existing PAD database, run `php scripts/setup-office-routing.php` to add Office Document Routing. The installer preserves existing references, adopts any existing `PAD-YYYY-NNNNNN` series, and separates the sender and pending destination for legacy documents in transit. It can be run again safely and does not alter Google account approvals.
 
-Start Apache and MySQL, run `npm run build` in `pad-web`, then open `http://localhost/pad-web/`. No running Vite server is needed. The API health endpoint is `http://localhost/pad-api/public/api/health`. The optional `npm run dev` workflow still uses `http://localhost:5174`.
+Start Apache and MySQL, then run `npm run dev` in `pad-web` and open `http://localhost:5174`. Retain local credentials and local API origins in the untracked `.env`. The local API health endpoint is `http://localhost/pad-api/public/api/health`.
 
-## First deployment
+## Production: separate API hosting
 
-1. Create a MySQL database and user on the hosting server, then import `database/schema.sql` with phpMyAdmin. For an existing PAD database, retain the existing schema and data.
-2. Copy `.env.example` to `.env`, then enter the database details, API URL, PAD web URL, a long random `APP_KEY`, and the Google web-client ID.
-3. For the SKSU server, put `pad-api` under the Apache document root and retain its root and public `.htaccess` files. Enable `mod_rewrite` and `AllowOverride All`. The root rules block browser access to `.env`, source, database files, and uploads. Alternatively, an API virtual host may point directly to `pad-api/public`.
-4. Keep `UPLOAD_PATH` outside `public` and make it writable by PHP. Enable the PHP Fileinfo extension for document MIME validation, then restart PHP / Apache after changing `php.ini`. Set PHP `upload_max_filesize` and `post_max_size` large enough for `MAX_UPLOAD_BYTES`.
-5. Provide HTTPS for the frontend and API. Google's JavaScript origin rules permit HTTP only for localhost; Google login cannot operate at `http://isulan.sksu.edu.ph:8082`. Add the final HTTPS origin to Google Cloud Console's **Authorized JavaScript origins**. The frontend does not need a Google client secret. [Google origin validation](https://developers.google.com/identity/protocols/oauth2/web-server#javascript-origin-validation).
+PAD Web deploys from GitHub to Vercel. This repository deploys separately to your Apache/PHP hosting at **https://padapi.sksu-orms.net**. No frontend build or Node runtime is needed on the API host.
 
-For the intended server with TLS on port 8082, set:
+The API domain should preferably serve the application's `public` folder. For a domain serving the application folder instead, the root `.htaccess` also routes `/api/...` to the public front controller while blocking credentials, source, schemas, setup scripts, and storage. Both layouts provide **https://padapi.sksu-orms.net/api/health**; the frontend uses the API domain without a `/public` suffix.
+
+1. Find the actual domain document root in **cPanel > Domains > Manage padapi.sksu-orms.net**. Confirm the application folder matches `DEPLOYPATH` in `.cpanel.yml` before the first deployment. The prepared default is `/home/tnrmssks25/padapi.sksu-orms.net`; this folder has not been verified through your cPanel account.
+2. Deploy the API source using cPanel Git Version Control or copy the application files. The deployment tasks also supply schemas/setup scripts and create private storage directories. They preserve the hosting `.env`, uploaded documents, certificate cache, and recovery backups.
+3. Create or retain the hosting database and user. Import `database/schema.sql` only for a fresh database. For an existing installation, back up the database and run the relevant setup scripts from the application folder; keep existing records and approved Google accounts.
+4. Create the host's private `.env` from `.env.example` and supply production database credentials, the existing or newly generated `APP_KEY`, Google client ID, and verified frontend origin. The example leaves CORS origins blank until the Vercel production domain is known.
+5. Enable HTTPS, Apache rewrite rules, PDO MySQL, OpenSSL, Fileinfo, and cURL or HTTPS streams. Keep storage writable by the account running PHP and configure upload limits for `MAX_UPLOAD_BYTES`.
+6. Run `php scripts/check-production.php` on the host to check configuration, database schema, extensions, and storage without modifying records. Then run `php scripts/check-hosting.php https://padapi.sksu-orms.net https://YOUR-ACTUAL-FRONTEND-DOMAIN` for read-only HTTPS and CORS checks.
 
 ```dotenv
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://isulan.sksu.edu.ph:8082/pad-api/public
-APP_ALLOWED_ORIGINS=https://isulan.sksu.edu.ph:8082
+APP_URL=https://padapi.sksu-orms.net
+APP_ALLOWED_ORIGINS=https://YOUR-ACTUAL-FRONTEND-DOMAIN
 ```
 
-Retain the server's database credentials, `APP_KEY`, and Google client ID. `APP_URL` is also the PAD session-token issuer, so changing it requires users to sign in again. The frontend uses `/pad-api/public` on the same host and port, whether it is served at `/` or `/pad-web/`. The frontend README describes both layouts.
+Find the actual frontend address in **Vercel > PAD Web project > Settings > Domains**. Use that same origin in Google Cloud's **Authorized JavaScript origins**. Keep production origins explicit; do not allow every Vercel deployment. `APP_URL` is the PAD token issuer, so users must sign in again when moving from the old API address.
+
+See [Hosting deployment](docs/hosting-deployment.md) for first-installation steps, existing-database setup, and verification. [cPanel deployment guide](https://docs.cpanel.net/knowledge-base/web-services/guide-to-git-deployment/).
 
 ## Account roles and role selection
 

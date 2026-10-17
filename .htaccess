@@ -2,5 +2,12 @@ Options -Indexes
 RewriteEngine On
 
 # The API front controller is public; credentials, uploads, and source are not.
+RewriteRule (^|/)\. - [F,L]
+
+# Support /api/... if cPanel serves the application folder rather than public.
+# Preserve bearer tokens for Apache CGI/FastCGI before the internal rewrite.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 RewriteRule ^public(?:/|$) - [L]
+RewriteRule ^api(?:/|$) public/index.php [QSA,L]
 RewriteRule ^ - [F,L]
