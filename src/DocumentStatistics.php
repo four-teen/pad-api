@@ -201,20 +201,29 @@ class DocumentStatistics
         arsort($types);
         $typeRows = array();
         foreach ($types as $name => $count) $typeRows[] = array('name' => $name, 'documents' => $count, 'share' => $registered ? round($count * 100 / $registered, 1) : 0);
-        $actedTypeRows = array();
+        $actedTypeRows = array(); $recordedTypeRows = array();
         if (is_presidential_view($this->actor)) {
-            // Keep every configured type visible, including zero Acts. Historical
-            // types remain visible; count documents once by their recorded Act date.
+            // Keep configured and historical types visible. Registry totals use
+            // all registration dates; Acts use their recorded dates separately.
             $typeCatalog = $this->db->query('SELECT name FROM document_types WHERE is_active = 1 ORDER BY name')->fetchAll(PDO::FETCH_COLUMN);
             $actedCounts = array_fill_keys($type === '' ? $typeCatalog : array($type), 0);
-            $actedTypes = $this->db->prepare("SELECT COALESCE(t.name, d.document_type) AS name, COUNT(DISTINCT r.document_id) AS documents
+            $recordedCounts = $actedCounts;
+            $actedTypes = $this->db->prepare("SELECT COALESCE(t.name, d.document_type) AS name, COUNT(DISTINCT r.document_id) AS documents,
+                COUNT(DISTINCT d.id) AS recorded_documents
                 FROM documents d LEFT JOIN document_types t ON t.name = d.document_type
                 LEFT JOIN document_routes r ON r.document_id = d.id AND r.action = 'acted' AND r.created_at >= ? AND r.created_at < ?
                 WHERE " . $where . ' GROUP BY COALESCE(t.name, d.document_type) ORDER BY name');
             $actedTypes->execute(array_merge(array($from, $until), $parameters));
-            foreach ($actedTypes->fetchAll() as $row) $actedCounts[$row['name']] = (int) $row['documents'];
+            foreach ($actedTypes->fetchAll() as $row) {
+                $actedCounts[$row['name']] = (int) $row['documents'];
+                // All registry rows count once, including imported history and
+                // earlier registration years, regardless of an Act milestone.
+                $recordedCounts[$row['name']] = (int) $row['recorded_documents'];
+            }
             ksort($actedCounts, SORT_NATURAL | SORT_FLAG_CASE);
+            ksort($recordedCounts, SORT_NATURAL | SORT_FLAG_CASE);
             foreach ($actedCounts as $name => $count) $actedTypeRows[] = array('name' => $name, 'documents' => $count);
+            foreach ($recordedCounts as $name => $count) $recordedTypeRows[] = array('name' => $name, 'documents' => $count);
         }
         $workload = array_values(array_filter($officeRows, function ($row) use ($global, $office) {
             return ($global || (int) $row['id'] === $office) && ($row['awaiting_receipt'] || $row['pending_action']
@@ -225,7 +234,8 @@ class DocumentStatistics
             'server_time' => $now->format('Y-m-d\TH:i:s\Z'), 'display_timezone' => 'Asia/Manila',
             'filters' => array('start_date' => $start->format('Y-m-d'), 'end_date' => $end->format('Y-m-d'), 'document_type' => $type),
             'document_types' => $catalog, 'snapshot' => $snapshot, 'current_statuses' => $statuses, 'milestones' => $milestones,
-            'period' => $period, 'monthly' => array_values($months), 'type_breakdown' => $typeRows, 'acted_type_breakdown' => $actedTypeRows, 'pending_age' => $buckets,
+            'period' => $period, 'monthly' => array_values($months), 'type_breakdown' => $typeRows, 'acted_type_breakdown' => $actedTypeRows,
+            'recorded_type_breakdown' => $recordedTypeRows, 'pending_age' => $buckets,
             'office_workload' => $workload, 'oldest_pending' => $oldest,
             'processing_time' => array('registration_to_act' => array('seconds' => $registrationTime['seconds'] === null ? null : (float) $registrationTime['seconds'], 'samples' => (int) $registrationTime['samples']),
                 'act_to_delivery' => array('seconds' => $deliveryTime['seconds'] === null ? null : (float) $deliveryTime['seconds'], 'samples' => (int) $deliveryTime['samples']),
