@@ -21,3 +21,6 @@
 *.key
 *.p12
 *.pfx
+
+# Local migration tooling bytecode (source scripts remain versioned).
+__pycache__/

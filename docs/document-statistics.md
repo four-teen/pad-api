@@ -32,6 +32,8 @@ The API is `GET /api/routing/statistics`, also available as `/api/doc_router/rou
 
 The date filters apply to period activity and registration cohorts, not the current pending snapshot. Document type applies to both. Desk queue cards use all dates and types independently of reporting filters.
 
+Presidential monitoring also returns `recorded_type_breakdown`: one all-date registry count per active configured or historically recorded document type. Its sum matches `snapshot.total_documents`, including documents from earlier years and documents without a recorded Act. The selected document type applies to both these totals. `acted_type_breakdown` remains the separate selected-period Act summary; ordinary reporting roles receive empty arrays for these presidential fields.
+
 ## Processing time
 
 - **Office receipt to next handling action:** completed office stays ending in a dispatch, Act, or completion during the period. Match the latest preceding arrival at that office; ignore uploads and repeated actions in the same stay. Re-receipt starts another stay. Transit and unfinished stays are excluded.

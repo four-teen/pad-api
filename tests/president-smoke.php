@@ -171,7 +171,7 @@ try {
         ('Travel Order', 'travel_order', 1), ('Request Letter', 'personnel', 1), ('Inactive unused type', 'personnel', 0)");
     $db->exec("INSERT INTO documents (id, reference_no, subject, document_type, origin_type, source_office_id, current_office_id, status, created_by_user_id, created_at, updated_at) VALUES
         (4, 'PAD-ACT-TRAVEL', 'Delivered travel order with repeated Acts', 'Travel Order', 'office', 2, 2, 'delivered', 2, '" . $year . "-01-10 00:00:00', UTC_TIMESTAMP()),
-        (5, 'PAD-ACT-LEGACY', 'Historical document type', 'Legacy type', 'office', 2, 2, 'acted', 2, '" . $year . "-01-10 00:00:00', UTC_TIMESTAMP())");
+        (5, 'PAD-ACT-LEGACY', 'Historical document type', 'Legacy type', 'office', 2, 2, 'acted', 2, '" . ((int) $year - 1) . "-01-10 00:00:00', UTC_TIMESTAMP())");
     $db->exec("UPDATE documents SET status='delivered' WHERE id=2");
     $actEvent = $db->prepare('INSERT INTO document_routes (document_id, from_office_id, to_office_id, action, acted_by_user_id, actor_role, created_at) VALUES (?, 2, 2, ?, 2, \'sksu_officials\', ?)');
     foreach (array(
@@ -187,15 +187,22 @@ try {
     $typeReport = $http('/api/president/statistics' . $typePeriod);
     president_check($typeReport['status'] === 200, 'Presidential Act type cards use the real statistics HTTP endpoint.');
     $actedCounts = array_column($typeReport['data']['acted_type_breakdown'], 'documents', 'name');
+    $recordedCounts = array_column($typeReport['data']['recorded_type_breakdown'], 'documents', 'name');
+    president_check($recordedCounts['Memorandum'] === 3 && $recordedCounts['Travel Order'] === 1 && $recordedCounts['Legacy type'] === 1, 'Recorded cards include unacted documents, repeated-Act documents once, and previous-year registrations.');
+    president_check($recordedCounts['Request Letter'] === 0 && !isset($recordedCounts['Inactive unused type']), 'Recorded cards retain active zero-count types and omit inactive unused types.');
+    president_check(array_sum($recordedCounts) === $typeReport['data']['snapshot']['total_documents'], 'The sum of the recorded type cards equals the full registry snapshot.');
     president_check($actedCounts['Memorandum'] === 1 && $actedCounts['Travel Order'] === 1, 'Each acted document counts once by type, including repeated Acts and later delivery.');
     president_check($actedCounts['Legacy type'] === 1, 'Historical document types and the inclusive Manila starting instant are retained.');
     president_check($actedCounts['Request Letter'] === 0 && !isset($actedCounts['Inactive unused type']), 'Active unused types show zero, while inactive unused types are omitted.');
     president_check(array_sum($actedCounts) === $typeReport['data']['period']['acted'] && $typeReport['data']['period']['registered'] === 0, 'Type counts match recorded Acts rather than registration totals for the same period.');
     $beforeEnd = $http('/api/president/statistics?start_date=' . $year . '-02-01&end_date=' . $year . '-02-27');
+    president_check($beforeEnd['data']['recorded_type_breakdown'] === $typeReport['data']['recorded_type_breakdown'], 'Changing reporting dates does not hide earlier recorded documents from the cards.');
     president_check(array_column($beforeEnd['data']['acted_type_breakdown'], 'documents', 'name')['Memorandum'] === 0, 'Acts outside the selected period cannot inflate a document-type count.');
     $onlyTravel = $http('/api/president/statistics' . $typePeriod . '&document_type=Travel%20Order');
+    president_check($onlyTravel['data']['recorded_type_breakdown'] === array(array('name' => 'Travel Order', 'documents' => 1)) && $onlyTravel['data']['snapshot']['total_documents'] === 1, 'The document-type filter applies consistently to recorded cards and their total.');
     president_check($onlyTravel['data']['acted_type_breakdown'] === array(array('name' => 'Travel Order', 'documents' => 1)), 'The same document-type filter applies to Act cards and the Acted total.');
     president_check($http('/api/routing/statistics' . $typePeriod, 'GET', 'ovp_pad', $padToken)['data']['acted_type_breakdown'] === array(), 'The new per-type cards do not change ordinary OVP reports.');
+    president_check($http('/api/routing/statistics' . $typePeriod, 'GET', 'ovp_pad', $padToken)['data']['recorded_type_breakdown'] === array(), 'The new recorded type data is limited to presidential reports.');
     echo 'Presidential monitoring checks passed: ' . $checks . PHP_EOL;
 } finally {
     if (is_resource($httpServer)) { proc_terminate($httpServer); proc_close($httpServer); }
