@@ -5,6 +5,15 @@ if (strpos($path, '/api/admin/') === 0) {
     $admin = new Administration(database(), $user);
     header('Cache-Control: no-store');
 
+    if ($path === '/api/admin/file-codes') {
+        require_once __DIR__ . '/DocumentFileCodes.php';
+        $codes = new DocumentFileCodes(database());
+        if ($method === 'GET') json_response(array('data' => $codes->settings($_GET['year'] ?? null)));
+        if ($method === 'PATCH') json_response(array('data' => $codes->save(request_json()), 'message' => 'File code settings saved.'));
+        header('Allow: GET, PATCH');
+        api_error('This request method is not supported.', 405);
+    }
+
     if (strpos($path, '/api/admin/database') === 0) {
         require_once __DIR__ . '/DatabaseMaintenance.php';
         $maintenance = new DatabaseMaintenance(database(), $user);

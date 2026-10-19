@@ -17,6 +17,12 @@ function review_rejects(callable $callback, $status, $message) {
     }
     throw new RuntimeException($message);
 }
+function review_outgoing_check(DocumentRouting $routing, $reference, $expected, $message) {
+    $workspace = $routing->workspace(array('queue' => 'outgoing'));
+    review_check($workspace['counts']['outgoing'] === $expected && $workspace['desk_counts']['outgoing'] === $expected
+        && $workspace['pagination']['total'] === $expected
+        && array_column($workspace['data'], 'reference_no') === ($expected ? array($reference) : array()), $message);
+}
 
 $source = env_value('DB_DATABASE');
 if (!preg_match('/^[A-Za-z0-9_]+$/', $source)) throw new RuntimeException('Invalid source database name.');
@@ -70,14 +76,19 @@ try {
     };
     review_rejects(function () use ($office) { $office->workspace(array('queue' => 'for_approval')); }, 422, 'SKSU role cannot request PAD approval queue.');
     review_rejects(function () use ($pad) { $pad->workspace(array('queue' => 'pad_results')); }, 422, 'PAD cannot request Central Records results queue.');
+    review_rejects(function () use ($pad) { $pad->workspace(array('queue' => 'for_action')); }, 422, 'PAD cannot open the Records For Action queue.');
+    review_rejects(function () use ($office) { $office->workspace(array('queue' => 'for_action')); }, 422, 'SKSU mode cannot open For Action even on an identity assigned to Records.');
     foreach (array('approved', 'disapproved', 'returned_for_correction') as $index => $decision) {
         $ref = $fixture($index + 1);
         $records->action($ref, 'route', array('to_office_id' => 80));
+        review_outgoing_check($records, $ref, 1, 'Central Records counts the current submission as Outgoing until PAD receives it.');
         $in = $pad->workspace(array('queue' => 'incoming'));
         review_check(in_array($ref, array_column($in['data'], 'reference_no'), true), 'Submission awaits physical PAD receipt.');
         review_check(!$pad->record($ref)['permissions']['decide'], 'Decision blocked until actual receipt.');
         review_rejects(function () use ($pad, $ref) { $pad->action($ref, 'decide', array('decision' => 'approved')); }, 409, 'Cannot decide before receipt.');
         $pad->action($ref, 'receive', array());
+        review_outgoing_check($records, $ref, 0, 'PAD receipt removes the document from Central Records Outgoing rows and both counts.');
+        review_check(in_array($ref, array_column($records->workspace(array('queue' => 'all'))['data'], 'reference_no'), true), 'Records keeps the received PAD submission in All Timeline.');
         $doc = $pad->record($ref, true);
         review_check($doc['permissions']['decide'] && $doc['awaiting_pad_decision'], 'Received submission allows a PAD decision.');
         review_check(in_array($ref, array_column($pad->workspace(array('queue' => 'for_approval'))['data'], 'reference_no'), true), 'Received document appears For Approval.');
@@ -89,6 +100,15 @@ try {
         if ($decision !== 'approved') review_rejects(function () use ($pad, $ref, $decision) { $pad->action($ref, 'decide', array('decision' => $decision)); }, 422, 'Negative decision requires a reason.');
         review_rejects(function () use ($pad, $ref) { $pad->action($ref, 'decide', array('decision' => 'unknown')); }, 422, 'Unknown outcome rejected.');
         $pad->action($ref, 'decide', array('decision' => $decision, 'notes' => $decision === 'approved' ? '' : 'Include supporting documents.', 'to_office_id' => 10));
+        review_outgoing_check($pad, $ref, 1, 'PAD counts its returned decision as Outgoing while Records has not received it.');
+        review_outgoing_check($records, $ref, 0, 'A PAD return does not revive Records earlier Outgoing submission.');
+        review_check(!$records->record($ref)['is_issue_return'] && $records->workspace(array('queue' => 'returned'))['counts']['returned'] === 0,
+            'Automatic PAD decision handoffs do not populate the issue-return queue or badge, including correction decisions.');
+        review_check($records->record($ref)['permissions']['receive'] && !$records->record($ref)['permissions']['act'], 'A PAD decision awaits a separate Records receipt before Act is available.');
+        $notReady = $records->workspace(array('queue' => 'for_action'));
+        review_check($notReady['data'] === array() && $notReady['pagination']['total'] === 0 && $notReady['counts']['for_action'] === 0
+            && $notReady['desk_counts']['for_action'] === 0 && $notReady['counts']['incoming'] === 1, 'Pending PAD decisions stay in Awaiting Receipt with no For Action rows or count.');
+        review_rejects(function () use ($records, $ref) { $records->action($ref, 'act', array('owner_office_id' => 9, 'hard_copy_received' => true, 'notes' => 'Try to skip receipt.')); }, 409, 'An old combined-Act payload cannot bypass the separate receipt step.');
         $doc = $pad->record($ref, true);
         review_check($doc['pad_decision'] === $decision && (int) $doc['pending_office_id'] === 2 && (int) $doc['current_office_id'] === 80,
             'Decision and return are atomic; caller cannot redirect result.');
@@ -100,6 +120,19 @@ try {
         review_check((int) $results['office']['id'] === 2 && in_array($ref, array_column($results['data'], 'reference_no'), true), 'PAD Results stays local even when global monitoring selected.');
         review_check($records->record($ref)['permissions']['receive'] && !$records->record($ref)['permissions']['route'], 'Central Records must confirm the returned hard copy.');
         $records->action($ref, 'receive', array());
+        review_outgoing_check($pad, $ref, 0, 'Records receipt clears PAD Outgoing for every decision outcome.');
+        $ready = $records->workspace(array('queue' => 'for_action', 'office_id' => 'all'));
+        review_check($records->record($ref)['permissions']['act'] && !$records->record($ref)['permissions']['receive']
+            && array_column($ready['data'], 'reference_no') === array($ref) && $ready['pagination']['total'] === 1
+            && $ready['counts']['for_action'] === 1 && $ready['desk_counts']['for_action'] === 1
+            && (int) $ready['office']['id'] === 2, 'Each received PAD outcome appears in For Action with Act and matching local list and dashboard counts.');
+        $ordinary = $records->workspace(array('queue' => 'received'));
+        review_check($ordinary['data'] === array() && $ordinary['pagination']['total'] === 0 && $ordinary['counts']['received'] === 0
+            && $ordinary['counts']['incoming'] === 0 && $ordinary['counts']['returned'] === 0, 'A ready PAD decision is excluded from Received, Awaiting Receipt, and issue-return counts.');
+        review_check($admin->workspace(array('queue' => 'received', 'office_id' => 'all', 'search' => $ref))['pagination']['total'] === 0,
+            'Global Received monitoring also excludes documents belonging to For Action.');
+        $attention = $records->workspace(array('queue' => 'attention', 'search' => $ref));
+        review_check($attention['pagination']['total'] === 1, 'Records overview still includes For Action documents in its consolidated attention list.');
         review_check(in_array($ref, array_column($records->workspace(array('queue' => 'pad_results'))['data'], 'reference_no'), true), 'Received result remains visible for distribution.');
         if ($decision === 'returned_for_correction') {
             $firstDecision = $doc['pad_reviews'][0];
@@ -118,8 +151,16 @@ try {
         }
         $attachFixture($ref);
         $records->action($ref, 'act', array('owner_office_id' => 9, 'hard_copy_received' => true, 'notes' => 'Processed PAD result and sent it to the owner.'));
+        review_outgoing_check($records, $ref, 1, 'A Records owner release is Outgoing only while awaiting owner receipt.');
+        $dispatched = $records->workspace(array('queue' => 'for_action'));
+        review_check($dispatched['data'] === array() && $dispatched['counts']['for_action'] === 0
+            && $dispatched['desk_counts']['for_action'] === 0 && $dispatched['pagination']['total'] === 0,
+            'Act and owner dispatch remove the document from For Action and its counts.');
+        review_outgoing_check($pad, $ref, 0, 'A later Records owner release stays out of PAD historical Outgoing.');
         review_check(!in_array($ref, array_column($records->workspace(array('queue' => 'pad_results'))['data'], 'reference_no'), true), 'Distributed results leave current Central workload.');
         $office->action($ref, 'receive', array());
+        review_outgoing_check($records, $ref, 0, 'Owner receipt clears Records Outgoing after the Act dispatch.');
+        review_check(in_array($ref, array_column($records->workspace(array('queue' => 'acted'))['data'], 'reference_no'), true), 'Clearing received owner releases from Outgoing preserves Records Acted archive.');
         review_check($office->record($ref)['status'] === 'delivered', 'Owner confirmation records delivery rather than another unfinished receipt.');
         review_check($office->record($ref)['pad_decision'] === ($decision === 'returned_for_correction' ? 'approved' : $decision), 'Recipient sees latest decision.');
         review_rejects(function () use ($other, $ref) { $other->record($ref); }, 403, 'Results do not broaden unrelated office access.');
@@ -148,6 +189,9 @@ try {
     review_check(in_array($oldResult, array_column($records->workspace(array('queue' => 'pad_results'))['data'], 'reference_no'), true), 'Unclassified older PAD returns appear in PAD Results.');
     $records->action($oldResult, 'receive', array());
     review_check($records->record($oldResult)['pad_result_unrecorded'] && $records->record($oldResult)['pad_decision'] === null, 'Actual receipt does not guess a legacy approval.');
+    review_check(in_array($oldResult, array_column($records->workspace(array('queue' => 'for_action'))['data'], 'reference_no'), true)
+        && $records->workspace(array('queue' => 'received', 'search' => $oldResult))['pagination']['total'] === 0,
+        'An already received historical PAD handoff remains actionable in For Action without an invented decision.');
     $attachFixture($oldResult);
     $db->exec("UPDATE document_routes SET notes='Historical PAD routing instructions.' WHERE document_id=$oldId AND dispatched_at IS NOT NULL");
     $records->action($oldResult, 'act', array('owner_office_id' => 9, 'hard_copy_received' => true, 'notes' => 'Processed the historical PAD return for its owner.'));
@@ -182,15 +226,16 @@ try {
     $adminRecords = new DocumentRouting($db, $adminAtRecords);
     review_check(!$adminRecords->record($final)['permissions']['act'], 'Selecting Administrator at the receiving office does not grant Act authority.');
     review_rejects(function () use ($adminRecords, $final) { $adminRecords->action($final, 'return', array('notes' => 'Bypass Records action')); }, 409, 'A different module at Records cannot bypass Act by returning the result.');
-    review_check($records->record($final)['permissions']['act'] && !$records->record($final)['permissions']['route']
-        && !$records->record($final)['permissions']['return'], 'A pending PAD handoff supports Act with explicit receipt confirmation, without Send or Return.');
+    review_check($records->record($final)['permissions']['receive'] && !$records->record($final)['permissions']['act']
+        && !$records->record($final)['permissions']['route'] && !$records->record($final)['permissions']['return'], 'A pending PAD handoff offers Receive and blocks Act, Send, and Return.');
+    review_rejects(function () use ($records, $final) { $records->action($final, 'act', array('notes' => 'Finalized', 'owner_office_id' => 9, 'hard_copy_received' => true)); }, 409, 'Act cannot confirm or bypass a pending receipt.');
+    $records->action($final, 'receive', array('notes' => 'Hard copy received.'));
     review_check($records->record($final)['permissions']['act'] && !$records->record($final)['permissions']['complete']
         && !$records->record($final)['permissions']['deliver'], 'A received PAD result offers the final Act action at Records.');
     review_rejects(function () use ($records, $final) { $records->action($final, 'act', array('notes' => 'Finalized')); }, 422, 'Final Act requires an attachment.');
     $id = (int) $records->record($final)['id'];
     $q = $db->prepare('UPDATE documents SET stored_file_name=?, file_name=?, file_mime=?, file_size=? WHERE id=?');
     $q->execute(array(basename($finalFile), 'signed.pdf', 'application/pdf', filesize($finalFile), $id));
-    review_rejects(function () use ($records, $final) { $records->action($final, 'act', array('notes' => 'Finalized', 'owner_office_id' => 9)); }, 422, 'Act requires affirmative hard-copy confirmation.');
     review_rejects(function () use ($records, $final) { $records->action($final, 'act', array('notes' => 'Finalized', 'hard_copy_received' => true)); }, 422, 'Act requires an owner office.');
     review_rejects(function () use ($records, $final) { $records->action($final, 'act', array('notes' => 'Finalized', 'hard_copy_received' => true, 'owner_office_id' => 2)); }, 422, 'Act cannot send the document back to the acting Records office.');
     $db->exec('UPDATE offices SET is_active=0 WHERE id=9');
@@ -212,9 +257,11 @@ try {
     catch (PDOException $expected) {}
     $db->exec('DROP TRIGGER reject_final_action');
     $afterFinal = $records->record($final, true);
-    review_check($afterFinal['status'] === 'in_transit' && (int) $afterFinal['pending_office_id'] === 2
-        && $afterFinal['history'] === $beforeFinal['history'], 'A failed Act dispatch rolls back the receipt, custody change, and action together.');
-    $records->action($final, 'act', array('notes' => 'Final document checked and released.', 'hard_copy_received' => true, 'owner_office_id' => 9));
+    review_check($afterFinal['status'] === 'received' && $afterFinal['pending_office_id'] === null && (int) $afterFinal['current_office_id'] === 2
+        && $afterFinal['history'] === $beforeFinal['history'], 'A failed Act dispatch preserves the independently confirmed receipt and rolls back only its action and dispatch.');
+    $records->action($final, 'act', array('notes' => 'Final document checked and released.', 'owner_office_id' => 9));
+    review_check(count(array_filter($records->record($final, true)['history'], function ($event) { return $event['action'] === 'received' && (int) $event['to_office_id'] === 2; })) === 1,
+        'Act does not duplicate the separately confirmed Records receipt.');
     $finished = $records->record($final, true);
     review_check($finished['status'] === 'in_transit' && (int) $finished['current_office_id'] === 2 && (int) $finished['pending_office_id'] === 9
         && end($finished['history'])['action'] === 'acted' && end($finished['history'])['dispatched_at'], 'Act records the Records milestone and dispatch while awaiting real owner delivery.');
@@ -249,6 +296,125 @@ try {
     review_check(!$records->record($notPad)['permissions']['act'], 'Records cannot mark ordinary office handoffs Acted.');
     review_rejects(function () use ($records, $notPad) { $records->action($notPad, 'act', array('notes' => 'Wrong sender')); }, 409, 'API checks PAD sender authority.');
 
+    // Explicit issue returns retain their own list and badge, including a PAD
+    // Return before receipt that has no recorded review decision.
+    $issue = $fixture(750, 9);
+    $office->action($issue, 'route', array('to_office_id' => 2));
+    $records->action($issue, 'return', array('notes' => 'Missing supporting papers.'));
+    $issueQueue = $office->workspace(array('queue' => 'returned'));
+    review_check($office->record($issue)['is_issue_return'] && $issueQueue['counts']['returned'] === 1
+        && in_array($issue, array_column($issueQueue['data'], 'reference_no'), true), 'An explicit Return appears in its destination Returned list and sidebar count.');
+    $office->action($issue, 'receive', array('notes' => 'Returned hard copy received.'));
+    review_check($office->workspace(array('queue' => 'returned'))['counts']['returned'] === 1, 'Receipt preserves tracking of the current issue return.');
+    $office->action($issue, 'route', array('to_office_id' => 2));
+    review_check($office->workspace(array('queue' => 'returned'))['counts']['returned'] === 0, 'Sending a corrected document onward clears its current issue-return workload.');
+    $padIssue = $fixture(751);
+    $records->action($padIssue, 'route', array('to_office_id' => 80));
+    $pad->action($padIssue, 'return', array('notes' => 'Incorrect attachment; please correct before PAD review.'));
+    $manualPadReturn = $records->record($padIssue);
+    review_check($manualPadReturn['is_issue_return'] && !$manualPadReturn['is_pad_return'] && $manualPadReturn['permissions']['receive']
+        && !$manualPadReturn['permissions']['act'] && in_array($padIssue, array_column($records->workspace(array('queue' => 'returned'))['data'], 'reference_no'), true),
+        'Using PAD Return for an issue stays distinct from submitting a PAD decision.');
+    $records->action($padIssue, 'receive', array());
+    review_check($records->record($padIssue)['permissions']['route'] && !$records->record($padIssue)['permissions']['act'], 'An issue returned by PAD can be corrected and sent again without being mistaken for a final decision.');
+    review_check($records->workspace(array('queue' => 'received', 'search' => $padIssue))['pagination']['total'] === 1
+        && $records->workspace(array('queue' => 'for_action', 'search' => $padIssue))['pagination']['total'] === 0,
+        'An explicit issue return from PAD stays in Received and Returned, outside For Action.');
+    $ordinaryPad = $fixture(752, 80);
+    $pad->action($ordinaryPad, 'route', array('to_office_id' => 9, 'notes' => 'Ordinary PAD handoff to another office.'));
+    $office->action($ordinaryPad, 'receive', array());
+    review_check($office->workspace(array('queue' => 'received', 'search' => $ordinaryPad))['pagination']['total'] === 1
+        && $admin->workspace(array('queue' => 'received', 'office_id' => 'all', 'search' => $ordinaryPad))['pagination']['total'] === 1,
+        'Ordinary PAD handoffs to other offices remain in Received locally and under global monitoring.');
+
+    // All Timeline is global for the active OVP modules, but an ordinary office
+    // only lists registrations it encoded or documents it actually sent.
+    $unrelated = $fixture(800, 10);
+    $unrelatedId = (int) $db->query("SELECT id FROM documents WHERE reference_no='$unrelated'")->fetchColumn();
+    $db->exec("UPDATE documents SET source_office_id=10, created_by_user_id=2, status='created' WHERE id=$unrelatedId");
+    $db->exec("INSERT INTO document_routes (document_id,to_office_id,action,received_at,acted_by_user_id,created_at)
+        VALUES ($unrelatedId,10,'created',UTC_TIMESTAMP(),2,UTC_TIMESTAMP())");
+    $totalRegistry = (int) $db->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+    foreach (array($pad, $records) as $globalModule) {
+        $global = $globalModule->workspace(array('queue' => 'all', 'search' => $unrelated));
+        review_check($global['pagination']['total'] === 1 && $global['office'] === null && $global['can_read_all_timelines']
+            && $global['counts']['all'] === $totalRegistry && $global['desk_counts']['all'] === $totalRegistry,
+            'Each OVP module defaults All Timeline to all offices with matching global badge and dashboard counts.');
+        $globalRecord = $globalModule->record($unrelated, true);
+        review_check(count($globalRecord['history']) === 1 && !array_filter($globalRecord['permissions']),
+            'OVP can read an unrelated timeline without gaining office action permissions.');
+        review_check($globalModule->workspace(array('queue' => 'incoming'))['counts']['all'] === $totalRegistry,
+            'All Timeline badge stays global while an OVP module is viewing its own incoming queue.');
+        $ownQueues = $globalModule->workspace(array('queue' => 'incoming'));
+        foreach (array('incoming', 'received', 'outgoing', 'returned', 'acted', 'delivered') as $workingQueue) {
+            review_check($global['counts'][$workingQueue] === $ownQueues['counts'][$workingQueue],
+                'Global All Timeline preserves the assigned-office ' . $workingQueue . ' sidebar count.');
+        }
+    }
+    review_check(!$pad->workspace(array('queue' => 'all'))['can_register_external'], 'PAD global timeline reading does not grant Records outside-intake authority.');
+    review_rejects(function () use ($pad) { $pad->workspace(array('queue' => 'incoming', 'office_id' => 'all')); }, 403,
+        'PAD global timeline access does not broaden incoming-office monitoring.');
+    $filtered = $pad->workspace(array('queue' => 'all', 'office_id' => 10, 'search' => $unrelated));
+    review_check($filtered['pagination']['total'] === 1 && (int) $filtered['office']['id'] === 10,
+        'PAD can explicitly filter its global All Timeline to another office.');
+    $filteredOwn = $pad->workspace(array('queue' => 'all', 'office_id' => 80));
+    review_check($filteredOwn['desk_counts']['all'] === $totalRegistry && (int) $filteredOwn['office']['id'] === 80,
+        'The OVP dashboard All Timeline card remains global even after filtering its timeline to its own office.');
+    review_check($office->workspace(array('queue' => 'all', 'search' => $unrelated))['pagination']['total'] === 0
+        && !$office->workspace(array('queue' => 'all'))['can_read_all_timelines'],
+        'The same multi-role identity in SKSU mode cannot list unrelated office timelines.');
+    review_rejects(function () use ($office, $unrelated) { $office->record($unrelated); }, 403, 'Ordinary offices cannot open an unrelated document directly.');
+    review_rejects(function () use ($office) { $office->workspace(array('queue' => 'all', 'office_id' => 'all')); }, 403, 'Ordinary offices cannot request a global timeline filter.');
+    review_check($other->workspace(array('queue' => 'all', 'search' => $unrelated))['pagination']['total'] === 1,
+        'The encoding office sees its created document in All Timeline.');
+
+    $receiveOnly = $fixture(801);
+    $receiveOnlyId = (int) $db->query("SELECT id FROM documents WHERE reference_no='$receiveOnly'")->fetchColumn();
+    $db->exec("UPDATE documents SET source_office_id=10 WHERE id=$receiveOnlyId");
+    $records->action($receiveOnly, 'route', array('to_office_id' => 80));
+    $pad->action($receiveOnly, 'receive', array());
+    $pad->action($receiveOnly, 'decide', array('decision' => 'approved', 'notes' => 'Released to final office.'));
+    $records->action($receiveOnly, 'receive', array());
+    $attachFixture($receiveOnly);
+    $records->action($receiveOnly, 'act', array('owner_office_id' => 9, 'notes' => 'Sent to the final receiving office.'));
+    review_check($office->workspace(array('queue' => 'incoming', 'search' => $receiveOnly))['pagination']['total'] === 1
+        && $office->workspace(array('queue' => 'all', 'search' => $receiveOnly))['pagination']['total'] === 0,
+        'A final office sees a receive-only owner release in Awaiting Receipt, outside its All Timeline.');
+    $office->action($receiveOnly, 'receive', array());
+    review_check($office->workspace(array('queue' => 'delivered', 'search' => $receiveOnly))['pagination']['total'] === 1
+        && $office->workspace(array('queue' => 'all', 'search' => $receiveOnly))['pagination']['total'] === 0
+        && count($office->record($receiveOnly, true)['history']) > 0,
+        'Final receipt still records Delivered and permits its detail/timeline without adding it to created-or-sent All Timeline.');
+    $sentLater = $fixture(802, 10);
+    $sentLaterId = (int) $db->query("SELECT id FROM documents WHERE reference_no='$sentLater'")->fetchColumn();
+    $db->exec("UPDATE documents SET source_office_id=10, created_by_user_id=2 WHERE id=$sentLaterId");
+    $other->action($sentLater, 'route', array('to_office_id' => 9));
+    $office->action($sentLater, 'receive', array());
+    review_check($office->workspace(array('queue' => 'all', 'search' => $sentLater))['pagination']['total'] === 0, 'Ordinary receipt alone does not add All Timeline visibility.');
+    $office->action($sentLater, 'route', array('to_office_id' => 10));
+    review_check($office->workspace(array('queue' => 'all', 'search' => $sentLater))['pagination']['total'] === 1, 'An ordinary office sees the same document in All Timeline after actually sending it.');
+    $encodedElsewhere = $fixture(803, 10);
+    $encodedElsewhereId = (int) $db->query("SELECT id FROM documents WHERE reference_no='$encodedElsewhere'")->fetchColumn();
+    $db->exec("INSERT INTO document_routes (document_id,to_office_id,action,received_at,acted_by_user_id,created_at)
+        VALUES ($encodedElsewhereId,10,'created',UTC_TIMESTAMP(),2,UTC_TIMESTAMP())");
+    review_check($other->workspace(array('queue' => 'all', 'search' => $encodedElsewhere))['pagination']['total'] === 1
+        && $office->workspace(array('queue' => 'all', 'search' => $encodedElsewhere))['pagination']['total'] === 0,
+        'Registration history identifies the actual encoding office when the selected document source belongs to another office.');
+
+    // Workspace decoration shares office state only for the current list. A
+    // later read/action must observe an office being disabled immediately.
+    $db->exec('UPDATE offices SET is_active=0 WHERE id=9');
+    $disabledWorkspace = $office->workspace(array('queue' => 'all', 'search' => $sentLater));
+    review_check(count($disabledWorkspace['data']) === 1 && !array_filter($disabledWorkspace['data'][0]['permissions']),
+        'A later workspace refresh observes office deactivation instead of reusing cached permissions.');
+    review_check(!array_filter($office->record($sentLater)['permissions']), 'Detail authorization also rechecks current office state after list decoration.');
+    $db->exec('UPDATE offices SET is_active=1 WHERE id=9');
+    review_check($office->record($sentLater)['permissions']['upload_file'], 'Restoring an office immediately restores eligible permissions.');
+    $unassignedActor = $actor('ovp_central_records'); $unassignedActor['office_id'] = null;
+    $unassignedWorkspace = (new DocumentRouting($db, $unassignedActor))->workspace(array('queue' => 'for_action'));
+    review_check($unassignedWorkspace['data'] === array() && $unassignedWorkspace['pagination']['total'] === 0,
+        'Unfiltered pagination still respects the visibility predicate for a module without an assigned office.');
+
     // Exercise both public endpoint families with real token/role validation in this generated database.
     $db->exec('CREATE TABLE fixture_accounts (acc_email VARCHAR(191) PRIMARY KEY)');
     $db->exec('INSERT INTO fixture_accounts SELECT email FROM users');
@@ -278,17 +444,41 @@ try {
         preg_match('/\s(\d{3})\s/', $http_response_header[0], $status);
         return array('status' => (int) $status[1], 'data' => json_decode($body, true));
     };
+    foreach (array('ovp_pad', 'ovp_central_records') as $globalRole) {
+        $allTimeline = $http('/api/doc_router/routing/workspace?queue=all&search=' . rawurlencode($unrelated), $globalRole);
+        review_check($allTimeline['status'] === 200 && $allTimeline['data']['pagination']['total'] === 1
+            && $allTimeline['data']['office'] === null, 'HTTP OVP All Timeline includes unrelated offices by default.');
+        review_check($http('/api/doc_router/documents/' . $unrelated, $globalRole)['status'] === 200,
+            'HTTP OVP global timeline entries open their details.');
+    }
+    review_check($http('/api/doc_router/routing/workspace?queue=all&search=' . rawurlencode($unrelated), 'sksu_officials')['data']['pagination']['total'] === 0,
+        'HTTP ordinary All Timeline excludes unrelated office records.');
+    review_check($http('/api/doc_router/routing/workspace?queue=all&office_id=all', 'sksu_officials')['status'] === 403,
+        'HTTP ordinary All Timeline rejects a forged global filter.');
     review_check($http('/api/doc_router/routing/workspace?queue=for_approval', 'ovp_pad')['status'] === 200, 'Role-scoped For Approval endpoint works.');
     review_check($http('/api/documents/' . $rollback . '/decide', 'admin', array('decision' => 'approved'))['status'] === 409, 'Ordinary endpoint cannot bypass PAD mode.');
     review_check($http('/api/doc_router/documents/' . $rollback . '/decide', 'ovp_pad', array('decision' => 'approved'))['status'] === 200, 'PAD module decision endpoint records return.');
     review_check($http('/api/routing/workspace?queue=pad_results', 'ovp_central_records')['status'] === 200, 'Ordinary endpoint uses the same PAD Results queue.');
     review_check($http('/api/doc_router/documents/' . $rollback . '/decide', 'ovp_pad', array('decision' => 'approved'))['status'] === 409, 'HTTP retry cannot create duplicate result.');
     $attachFixture($rollback);
-    $releaseInput = array('notes' => 'Checked and dispatched to owner.', 'owner_office_id' => 9, 'hard_copy_received' => true);
+    $releaseInput = array('notes' => 'Checked and dispatched to owner.', 'owner_office_id' => 9);
     review_check($http('/api/doc_router/documents/' . $rollback . '/act', 'ovp_pad', $releaseInput)['status'] === 409, 'HTTP Act requires the active Central Records role.');
-    $unconfirmedInput = $releaseInput; $unconfirmedInput['hard_copy_received'] = false;
-    review_check($http('/api/doc_router/documents/' . $rollback . '/act', 'ovp_central_records', $unconfirmedInput)['status'] === 422, 'HTTP Act requires explicit physical-receipt confirmation.');
-    review_check($http('/api/doc_router/documents/' . $rollback . '/act', 'ovp_central_records', $releaseInput)['status'] === 200, 'HTTP Act confirms receipt and dispatches to the owner in one request.');
+    $unconfirmedInput = $releaseInput; $unconfirmedInput['hard_copy_received'] = true;
+    review_check($http('/api/doc_router/documents/' . $rollback . '/act', 'ovp_central_records', $unconfirmedInput)['status'] === 409, 'HTTP Act cannot bypass receipt, even when an old client supplies the former receipt checkbox.');
+    $receipt = $http('/api/doc_router/documents/' . $rollback . '/receive', 'ovp_central_records', array('notes' => 'Received for appropriate action.'));
+    review_check($receipt['status'] === 200, 'HTTP Records confirms the PAD hard-copy receipt in its own request.');
+    $receivedRecord = $http('/api/doc_router/documents/' . $rollback, 'ovp_central_records')['data']['data'];
+    review_check($receivedRecord['status'] === 'received' && $receivedRecord['pending_office_id'] === null
+        && $receivedRecord['permissions']['act'] && !$receivedRecord['permissions']['receive'], 'HTTP receipt enables Act and removes Receive.');
+    $httpReady = $http('/api/doc_router/routing/workspace?queue=for_action&search=' . rawurlencode($rollback), 'ovp_central_records');
+    review_check($httpReady['status'] === 200 && $httpReady['data']['pagination']['total'] === 1
+        && $httpReady['data']['data'][0]['reference_no'] === $rollback, 'HTTP receipt places the PAD decision in the role-scoped For Action queue.');
+    review_check($http('/api/doc_router/routing/workspace?queue=received&search=' . rawurlencode($rollback), 'ovp_central_records')['data']['pagination']['total'] === 0,
+        'The same HTTP document is absent from the ordinary Received queue.');
+    review_check($http('/api/doc_router/documents/' . $rollback . '/receive', 'ovp_central_records', array())['status'] === 409, 'HTTP receipt retry cannot create a second receipt.');
+    review_check($http('/api/doc_router/documents/' . $rollback . '/act', 'ovp_central_records', $releaseInput)['status'] === 200, 'HTTP Act dispatches an already received PAD result without another receipt confirmation.');
+    review_check($http('/api/doc_router/routing/workspace?queue=for_action&search=' . rawurlencode($rollback), 'ovp_central_records')['data']['pagination']['total'] === 0,
+        'HTTP Act clears its dispatched document from For Action.');
     review_check($http('/api/doc_router/documents/' . $rollback . '/act', 'ovp_central_records', $releaseInput)['status'] === 409, 'HTTP Act retry cannot duplicate the owner dispatch.');
     $ownerReceipt = $http('/api/doc_router/documents/' . $rollback . '/receive', 'sksu_officials', array('notes' => 'Owner has the released copy.'));
     review_check($ownerReceipt['status'] === 200 && $ownerReceipt['data']['delivery_confirmed'] === true, 'HTTP owner receipt reports actual confirmed delivery.');

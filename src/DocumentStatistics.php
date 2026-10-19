@@ -93,9 +93,9 @@ class DocumentStatistics
             movement.action AS movement_action, movement.dispatched_at,
             receipt.received_at, review.decision AS latest_decision
             FROM documents d
-            LEFT JOIN document_routes movement ON movement.id = (SELECT MAX(m.id) FROM document_routes m WHERE m.document_id = d.id AND m.dispatched_at IS NOT NULL)
-            LEFT JOIN document_routes receipt ON receipt.id = (SELECT MAX(r.id) FROM document_routes r WHERE r.document_id = d.id
-                AND r.action IN ('created', 'externally_received', 'received') AND r.to_office_id = d.current_office_id)
+            LEFT JOIN document_routes movement ON movement.id = (SELECT m.id FROM document_routes m WHERE m.document_id = d.id AND m.dispatched_at IS NOT NULL ORDER BY m.document_id DESC, m.id DESC LIMIT 1)
+            LEFT JOIN document_routes receipt ON receipt.id = (SELECT r.id FROM document_routes r WHERE r.document_id = d.id
+                AND r.action IN ('created', 'externally_received', 'received') AND r.to_office_id = d.current_office_id ORDER BY r.document_id DESC, r.id DESC LIMIT 1)
             LEFT JOIN document_pad_reviews review ON review.id = (SELECT MAX(p.id) FROM document_pad_reviews p WHERE p.document_id = d.id)
             WHERE " . $where);
         $query->execute($parameters);

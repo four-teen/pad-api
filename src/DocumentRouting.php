@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/DocumentFileCodes.php';
+
 class DocumentRouting
 {
     private $db;
@@ -55,6 +57,19 @@ class DocumentRouting
     private function canMonitor()
     {
         return is_records_user($this->actor) || is_presidential_view($this->actor);
+    }
+
+    private function canReadAllTimelines()
+    {
+        return $this->canMonitor() || (($this->actor['active_role'] ?? '') === 'ovp_pad'
+            && in_array('ovp_pad', account_roles($this->actor), true));
+    }
+
+    private function isOvpModule()
+    {
+        $role = $this->actor['active_role'] ?? '';
+        return in_array($role, array('ovp_pad', 'ovp_central_records'), true)
+            && in_array($role, account_roles($this->actor), true);
     }
 
     private function receivingOffice($id)
@@ -116,27 +131,28 @@ class DocumentRouting
         return (int) $this->db->lastInsertId();
     }
 
-    private function joins()
+    private function joins($pageSql = null)
     {
-        return ' FROM documents d
+        return ($pageSql === null ? ' FROM documents d' : ' FROM (' . $pageSql . ') document_page STRAIGHT_JOIN documents d ON d.id = document_page.id') . '
             LEFT JOIN offices source ON source.id = d.source_office_id
             LEFT JOIN offices current ON current.id = d.current_office_id
             LEFT JOIN offices pending ON pending.id = d.pending_office_id
             LEFT JOIN offices recipient ON recipient.id = d.recipient_office_id
-            LEFT JOIN document_routes movement ON movement.id = (SELECT MAX(m.id) FROM document_routes m
-                WHERE m.document_id = d.id AND m.dispatched_at IS NOT NULL)
-            LEFT JOIN document_routes receipt ON receipt.id = (SELECT MAX(r.id) FROM document_routes r
-                WHERE r.document_id = d.id AND r.received_at IS NOT NULL)
+            LEFT JOIN document_routes movement ON movement.id = (SELECT m.id FROM document_routes m
+                WHERE m.document_id = d.id AND m.dispatched_at IS NOT NULL ORDER BY m.document_id DESC, m.id DESC LIMIT 1)
+            LEFT JOIN document_routes receipt ON receipt.id = (SELECT r.id FROM document_routes r
+                WHERE r.document_id = d.id AND r.received_at IS NOT NULL ORDER BY r.document_id DESC, r.id DESC LIMIT 1)
             LEFT JOIN offices previous ON previous.id = movement.from_office_id
             LEFT JOIN users receipt_actor ON receipt_actor.id = receipt.acted_by_user_id
             LEFT JOIN document_pad_reviews review ON review.id = (SELECT MAX(pr.id) FROM document_pad_reviews pr WHERE pr.document_id = d.id)
             LEFT JOIN users decision_actor ON decision_actor.id = review.decided_by_user_id
             LEFT JOIN offices review_records ON review_records.id = review.central_records_office_id
-            LEFT JOIN document_routes final_release ON final_release.id = (SELECT MAX(fr.id) FROM document_routes fr
-                WHERE fr.document_id = d.id AND fr.action = \'acted\' AND fr.dispatched_at IS NOT NULL AND fr.actor_role = \'ovp_central_records\')';
+            LEFT JOIN document_routes final_release ON final_release.id = (SELECT fr.id FROM document_routes fr
+                WHERE fr.document_id = d.id AND fr.action = \'acted\' AND fr.dispatched_at IS NOT NULL AND fr.actor_role = \'ovp_central_records\'
+                ORDER BY fr.document_id DESC, fr.id DESC LIMIT 1)';
     }
 
-    private function select()
+    private function select($pageSql = null)
     {
         return 'SELECT d.*, source.name AS source_office_name, source.campus AS source_office_campus,
             current.name AS current_office_name, current.campus AS current_office_campus, current.code AS current_office_code,
@@ -152,27 +168,45 @@ class DocumentRouting
             review.id AS pad_review_id, review.submission_route_id AS pad_submission_route_id, review.pad_office_id,
             review.central_records_office_id AS pad_central_records_office_id, review_records.name AS pad_central_records_office_name,
             review.decision AS pad_decision, review.decision_notes AS pad_decision_notes, review.decided_at AS pad_decided_at,
-            decision_actor.name AS pad_decided_by_name, review.result_route_id AS pad_result_route_id' . $this->joins();
+            decision_actor.name AS pad_decided_by_name, review.result_route_id AS pad_result_route_id' . $this->joins($pageSql);
     }
 
     private function participation($office, &$parameters)
     {
         for ($i = 0; $i < 6; $i++) $parameters[] = $office;
         return '(d.source_office_id = ? OR d.current_office_id = ? OR d.pending_office_id = ? OR d.recipient_office_id = ?
-            OR EXISTS (SELECT 1 FROM document_routes access_route WHERE access_route.document_id = d.id
-                AND (access_route.from_office_id = ? OR access_route.to_office_id = ?)))';
+            OR d.id IN (SELECT access_route.document_id FROM document_routes access_route WHERE access_route.from_office_id = ?)
+            OR d.id IN (SELECT access_route.document_id FROM document_routes access_route WHERE access_route.to_office_id = ?))';
     }
 
-    private function decorate($document)
+    private function timelineVisibility($office, &$parameters)
+    {
+        if ($this->canReadAllTimelines()) return $office ? $this->participation($office, $parameters) : '1 = 1';
+        if (!$office) return '1 = 0';
+        $parameters[] = $office; $parameters[] = $office;
+        // Registration events identify the actual encoding office even when the
+        // selected document source is a different office. Use source for older
+        // records without an initial registration event.
+        return '(EXISTS (SELECT 1 FROM document_routes timeline_route WHERE timeline_route.document_id = d.id
+                AND ((timeline_route.to_office_id = ? AND timeline_route.action IN (\'created\', \'externally_received\'))
+                    OR (timeline_route.from_office_id = ? AND timeline_route.dispatched_at IS NOT NULL)))
+            OR (d.source_office_id = ' . (int) $office . ' AND NOT EXISTS (SELECT 1 FROM document_routes registration
+                WHERE registration.document_id = d.id AND registration.action IN (\'created\', \'externally_received\'))))';
+    }
+
+    private function actorOfficeState()
+    {
+        if (empty($this->actor['office_id'])) return array();
+        $query = $this->db->prepare('SELECT is_active, code FROM offices WHERE id = ?');
+        $query->execute(array($this->actor['office_id']));
+        return $query->fetch() ?: array();
+    }
+
+    private function decorate($document, $officeState = null)
     {
         $office = (int) ($this->actor['office_id'] ?? 0);
-        $active = false;
-        if ($office) {
-            $query = $this->db->prepare('SELECT is_active, code FROM offices WHERE id = ?');
-            $query->execute(array($office));
-            $officeState = $query->fetch();
-            $active = $officeState && (bool) $officeState['is_active'] && !is_presidential_office($officeState);
-        }
+        if ($officeState === null) $officeState = $this->actorOfficeState();
+        $active = $office && $officeState && (bool) $officeState['is_active'] && !is_presidential_office($officeState);
         $held = $active && $office === (int) $document['current_office_id'] && !$document['pending_office_id']
             && in_array($document['status'], array('created', 'received'), true);
         $incoming = $active && $office === (int) $document['pending_office_id'] && $document['status'] === 'in_transit';
@@ -184,11 +218,14 @@ class DocumentRouting
             && ($this->actor['active_role'] ?? '') === 'ovp_central_records'
             && in_array('ovp_central_records', account_roles($this->actor), true);
         $document['is_pad_return'] = $document['last_sender_role'] === 'ovp_pad' && ($held || $incoming)
+            && (!$document['pad_review_id'] || (int) $document['last_movement_id'] === (int) $document['pad_result_route_id'])
             && $office === (int) $document['last_to_office_id']
             && ($padResult || $this->officeModuleRole($office) === 'ovp_central_records'
                 || $office === (int) $document['pad_central_records_office_id']);
         $document['is_owner_release'] = !empty($document['release_route_id'])
             && (int) $document['last_movement_id'] === (int) $document['release_route_id'];
+        $document['is_issue_return'] = $document['last_movement_action'] === 'returned'
+            && (int) $document['last_movement_id'] !== (int) $document['pad_result_route_id'];
         $correctionHeld = $active && $document['is_owner_release'] && $document['status'] === 'delivered'
             && $document['pad_decision'] === 'returned_for_correction'
             && $office === (int) $document['release_owner_office_id'] && !$document['pending_office_id'];
@@ -203,7 +240,7 @@ class DocumentRouting
             'return' => ($held || $incoming || $correctionHeld) && !$document['is_pad_return']
                 && !empty($document['last_from_office_id']) && $office !== (int) $document['last_from_office_id']
                 && !is_presidential_office(array('code' => $document['last_from_office_code'])),
-            'act' => $document['is_pad_return'] && $padResult,
+            'act' => $held && $document['status'] === 'received' && $document['is_pad_return'] && $padResult,
             'delete' => $held && $document['is_my_document'],
             'complete' => $held && !$document['is_my_document'] && !$document['is_pad_return'],
             'deliver' => $held && !$document['is_my_document'] && !$document['is_pad_return'],
@@ -237,7 +274,7 @@ class DocumentRouting
         $statement->execute($parameters);
         $document = $statement->fetch();
         if (!$document) $this->fail('Document not found.', 404);
-        if (!$this->canMonitor()) {
+        if (!$this->canReadAllTimelines()) {
             $parameters = array($document['id']);
             $query = $this->db->prepare('SELECT d.id FROM documents d WHERE d.id = ? AND ' . $this->participation((int) ($this->actor['office_id'] ?? 0), $parameters));
             $query->execute($parameters);
@@ -329,54 +366,89 @@ class DocumentRouting
         return array('type_id' => (int) $type['id'], 'type' => $type['name'], 'personnel' => $people, 'travel' => $travel);
     }
 
-    private function queueCondition($queue, $office, &$parameters)
+    private function latestDispatchId()
+    {
+        // document_id is constant within each lookup. Including it in ORDER BY
+        // also lets MySQL 5.7 use the composite index in correlated subqueries.
+        return '(SELECT latest.id FROM document_routes latest WHERE latest.document_id = d.id
+            AND latest.dispatched_at IS NOT NULL ORDER BY latest.document_id DESC, latest.id DESC LIMIT 1)';
+    }
+
+    private function latestDispatchMatches($condition, $joined)
+    {
+        // EXISTS is always true/false, including nullable legacy metadata.
+        if ($joined) return '(movement.id IS NOT NULL AND COALESCE((' . $condition . '), 0))';
+        return 'EXISTS (SELECT 1 FROM document_routes movement WHERE movement.document_id = d.id
+            AND movement.id = ' . $this->latestDispatchId() . ' AND (' . $condition . '))';
+    }
+
+    private function latestReviewMatches($condition, $joined)
+    {
+        if ($joined) return '(review.id IS NOT NULL AND COALESCE((' . $condition . '), 0))';
+        return 'EXISTS (SELECT 1 FROM document_pad_reviews review WHERE review.document_id = d.id
+            AND review.id = (SELECT MAX(lp.id) FROM document_pad_reviews lp WHERE lp.document_id = d.id)
+            AND (' . $condition . '))';
+    }
+
+    private function padResultCondition($office, $joined = false)
+    {
+        $destination = $office ? (string) (int) $office : 'd.current_office_id';
+        $classified = $this->latestReviewMatches('review.central_records_office_id = ' . $destination . ' AND review.decision IS NOT NULL
+            AND review.result_route_id = ' . ($joined ? 'movement.id' : $this->latestDispatchId()), $joined);
+        $noReviews = $joined ? 'review.id IS NULL' : 'NOT EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id)';
+        $legacy = $this->latestDispatchMatches('movement.to_office_id = ' . $destination . " AND (movement.actor_role = 'ovp_pad' OR (movement.actor_role IS NULL
+            AND EXISTS (SELECT 1 FROM users pu WHERE pu.is_active = 1 AND pu.ovp_pad_office_id = movement.from_office_id AND FIND_IN_SET('ovp_pad', pu.roles))))", $joined);
+        return '(' . $classified . ' OR (' . $noReviews . '
+                AND EXISTS (SELECT 1 FROM users records_user WHERE records_user.is_active = 1
+                    AND records_user.ovp_central_records_office_id = ' . $destination . " AND FIND_IN_SET('ovp_central_records', records_user.roles))
+                AND " . $legacy . '))';
+    }
+
+    private function queueCondition($queue, $office, &$parameters, $joined = false)
     {
         $holder = $office ? 'd.current_office_id = ' . (int) $office : '1 = 1';
         $recipient = $office ? 'd.pending_office_id = ' . (int) $office : 'd.pending_office_id IS NOT NULL';
         switch ($queue) {
             case 'attention':
                 if (!$office) return '1 = 0';
-                $received = $this->queueCondition('received', $office, $parameters);
+                $received = $this->queueCondition('received', $office, $parameters, $joined);
+                if (($this->actor['active_role'] ?? '') === 'ovp_central_records') {
+                    $received = '(' . $received . ') OR (' . $this->queueCondition('for_action', $office, $parameters, $joined) . ')';
+                }
                 return '(' . $received . ") OR (" . $holder . " AND d.pending_office_id IS NULL AND d.status = 'delivered'
-                    AND EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id
-                        AND pr.id = (SELECT MAX(lp.id) FROM document_pad_reviews lp WHERE lp.document_id = d.id)
-                        AND pr.decision = 'returned_for_correction')
-                    AND EXISTS (SELECT 1 FROM document_routes ar WHERE ar.document_id = d.id
-                        AND ar.id = (SELECT MAX(lm.id) FROM document_routes lm WHERE lm.document_id = d.id AND lm.dispatched_at IS NOT NULL)
-                        AND ar.action = 'acted' AND ar.actor_role = 'ovp_central_records' AND ar.to_office_id = " . (int) $office . '))';
+                    AND " . $this->latestReviewMatches("review.decision = 'returned_for_correction'", $joined) . '
+                    AND ' . $this->latestDispatchMatches("movement.action = 'acted' AND movement.actor_role = 'ovp_central_records' AND movement.to_office_id = " . (int) $office, $joined) . ')';
             case 'for_approval':
-                $latestMovement = '(SELECT MAX(pm.id) FROM document_routes pm WHERE pm.document_id = d.id AND pm.dispatched_at IS NOT NULL)';
+                $latestMovement = $joined ? 'movement.id' : $this->latestDispatchId();
+                $noReviews = $joined ? 'review.id IS NULL' : 'NOT EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id)';
                 return $holder . " AND d.pending_office_id IS NULL AND d.status IN ('created', 'received', 'acted') AND (
-                    EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id
-                        AND pr.id = (SELECT MAX(lp.id) FROM document_pad_reviews lp WHERE lp.document_id = d.id)
-                        AND pr.pad_office_id = " . (int) $office . ' AND pr.decision IS NULL AND pr.submission_route_id = ' . $latestMovement . ")
-                    OR (NOT EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id)
-                        AND EXISTS (SELECT 1 FROM document_routes pm WHERE pm.id = " . $latestMovement . ' AND pm.to_office_id = ' . (int) $office . "
-                            AND EXISTS (SELECT 1 FROM users ru WHERE ru.is_active = 1 AND ru.ovp_central_records_office_id = pm.from_office_id
-                                AND FIND_IN_SET('ovp_central_records', ru.roles)))))";
+                    " . $this->latestReviewMatches('review.pad_office_id = ' . (int) $office . ' AND review.decision IS NULL AND review.submission_route_id = ' . $latestMovement, $joined) . '
+                    OR (' . $noReviews . ' AND ' . $this->latestDispatchMatches('movement.to_office_id = ' . (int) $office . "
+                        AND EXISTS (SELECT 1 FROM users ru WHERE ru.is_active = 1 AND ru.ovp_central_records_office_id = movement.from_office_id
+                            AND FIND_IN_SET('ovp_central_records', ru.roles))", $joined) . '))';
             case 'pad_results':
                 return "d.status IN ('in_transit', 'received') AND ((d.pending_office_id IS NOT NULL AND " . $recipient . ') OR (d.pending_office_id IS NULL AND ' . $holder . '))
-                    AND (EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id
-                        AND pr.id = (SELECT MAX(lp.id) FROM document_pad_reviews lp WHERE lp.document_id = d.id)
-                        AND pr.central_records_office_id = ' . (int) $office . ' AND pr.decision IS NOT NULL
-                        AND pr.result_route_id = (SELECT MAX(pm.id) FROM document_routes pm WHERE pm.document_id = d.id AND pm.dispatched_at IS NOT NULL))
-                    OR (NOT EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id)
-                        AND EXISTS (SELECT 1 FROM document_routes pm WHERE pm.id = (SELECT MAX(lm.id) FROM document_routes lm WHERE lm.document_id = d.id AND lm.dispatched_at IS NOT NULL)
-                            AND pm.to_office_id = ' . (int) $office . " AND (pm.actor_role = 'ovp_pad' OR (pm.actor_role IS NULL
-                                AND EXISTS (SELECT 1 FROM users pu WHERE pu.is_active = 1 AND pu.ovp_pad_office_id = pm.from_office_id AND FIND_IN_SET('ovp_pad', pu.roles)))))))";
+                    AND ' . $this->padResultCondition($office, $joined);
+            case 'for_action':
+                return $holder . " AND d.pending_office_id IS NULL AND d.status = 'received' AND " . $this->padResultCondition($office, $joined);
             case 'incoming': return $recipient . " AND d.status = 'in_transit'";
             case 'my_documents': return $holder . " AND d.pending_office_id IS NULL AND d.status IN ('created', 'received')
                 AND d.origin_type = 'office' AND d.source_office_id = d.current_office_id
-                AND NOT EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.dispatched_at IS NOT NULL)";
+                AND " . ($joined ? 'movement.id IS NULL' : 'NOT EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.dispatched_at IS NOT NULL)');
             case 'received': return $holder . " AND d.pending_office_id IS NULL AND d.status IN ('created', 'received')
                 AND (d.origin_type <> 'office' OR d.source_office_id IS NULL OR d.source_office_id <> d.current_office_id
-                    OR EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.dispatched_at IS NOT NULL))";
+                    OR " . ($joined ? 'movement.id IS NOT NULL' : 'EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.dispatched_at IS NOT NULL)') . ')
+                AND NOT (' . $this->queueCondition('for_action', $office, $parameters, $joined) . ')';
             case 'outgoing':
-                if (!$office) return "d.status = 'in_transit'";
-                $parameters[] = $office;
-                return '(d.current_office_id <> ' . (int) $office . ' OR d.pending_office_id IS NOT NULL)
-                    AND EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.from_office_id = ? AND sent.dispatched_at IS NOT NULL)';
-            case 'returned': return "d.movement_type = 'return' AND d.status IN ('in_transit', 'received', 'acted') AND ((d.pending_office_id IS NOT NULL AND " . $recipient . ') OR (d.pending_office_id IS NULL AND ' . $holder . '))';
+                if ($office) $parameters[] = $office;
+                // Only the latest, still-unreceived handoff belongs to its sender.
+                // Earlier senders retain timeline access, even when the document moves again.
+                return "d.status = 'in_transit' AND d.pending_office_id IS NOT NULL
+                    AND " . $this->latestDispatchMatches('movement.to_office_id = d.pending_office_id AND movement.received_at IS NULL'
+                        . ($office ? ' AND movement.from_office_id = ?' : ''), $joined);
+            case 'returned': return "d.movement_type = 'return' AND d.status IN ('in_transit', 'received', 'acted') AND ((d.pending_office_id IS NOT NULL AND " . $recipient . ') OR (d.pending_office_id IS NULL AND ' . $holder . "))
+                AND " . $this->latestDispatchMatches("movement.action = 'returned'
+                    AND NOT EXISTS (SELECT 1 FROM document_pad_reviews decision_return WHERE decision_return.result_route_id = movement.id)", $joined);
             case 'acted': return '(' . $holder . " AND d.pending_office_id IS NULL AND d.status = 'acted') OR EXISTS (
                 SELECT 1 FROM document_routes ar WHERE ar.document_id = d.id AND ar.action = 'acted'
                     AND ar.dispatched_at IS NOT NULL AND ar.actor_role = 'ovp_central_records'"
@@ -386,11 +458,49 @@ class DocumentRouting
         }
     }
 
+    // Calculate queue counts together in one scan. Cache only inside this
+    // workspace call; never reuse live counts
+    // or authorization state after a receipt, action, or office change.
+    private function workspaceCounts(array $specifications, array &$cache)
+    {
+        $queries = array(); $parameters = array(); $keys = array(); $results = array();
+        foreach ($specifications as $name => $specification) {
+            list($base, $condition, $args) = $specification;
+            $sql = $base . ' AND (' . $condition . ')';
+            $key = $sql . ':' . json_encode($args);
+            $keys[$name] = $key;
+            if (array_key_exists($key, $cache)) continue;
+            if (isset($queries[$key])) continue;
+            // The ordinal is generated internally, not from a request parameter.
+            $queries[$key] = 'COALESCE(SUM(CASE WHEN ' . $sql . ' THEN 1 ELSE 0 END), 0) AS c' . count($queries);
+            $parameters = array_merge($parameters, $args);
+        }
+        if ($queries) {
+            $sql = 'SELECT ' . implode(', ', array_values($queries)) . ' FROM documents d';
+            // Share the latest route and review across all queue expressions,
+            // instead of probing the same ledger repeatedly for every badge.
+            if (strpos($sql, 'movement.') !== false || strpos($sql, 'review.') !== false) {
+                $sql .= ' LEFT JOIN document_routes movement ON movement.id = ' . $this->latestDispatchId() . '
+                    LEFT JOIN document_pad_reviews review ON review.id =
+                        (SELECT MAX(latest_review.id) FROM document_pad_reviews latest_review WHERE latest_review.document_id = d.id)';
+            }
+            $query = $this->db->prepare($sql);
+            $query->execute($parameters);
+            $missingKeys = array_keys($queries);
+            $row = $query->fetch();
+            foreach ($missingKeys as $ordinal => $key) $cache[$key] = (int) $row['c' . $ordinal];
+        }
+        foreach ($keys as $name => $key) $results[$name] = $cache[$key];
+        return $results;
+    }
+
     public function workspace(array $input)
     {
+        $requestedQueue = $input['queue'] ?? 'all';
         $scope = !empty($this->actor['office_id']) ? (int) $this->actor['office_id'] : null;
+        if ($requestedQueue === 'all' && $this->isOvpModule()) $scope = null;
         if (isset($input['office_id']) && $input['office_id'] !== '') {
-            if (!$this->canMonitor()) $this->fail('Office monitoring access is required.', 403);
+            if (!$this->canMonitor() && !($requestedQueue === 'all' && $this->canReadAllTimelines())) $this->fail('Office monitoring access is required.', 403);
             $scope = $input['office_id'] === 'all' ? null : filter_var($input['office_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
             if ($scope === false) $this->fail('Select a valid office.');
         }
@@ -407,21 +517,30 @@ class DocumentRouting
         if ($scope) $where[] = $this->participation($scope, $parameters);
         elseif (!$this->canMonitor()) $where[] = '1 = 0';
         $base = $where ? implode(' AND ', $where) : '1 = 1';
+        $timelineParameters = array();
+        $timelineScope = $this->isOvpModule() && $requestedQueue !== 'all' ? null : $scope;
+        $timelineBase = $this->timelineVisibility($timelineScope, $timelineParameters);
+        $countScope = $scope; $countParameters = $parameters; $countBase = $base;
+        if ($requestedQueue === 'all' && $this->isOvpModule()) {
+            $countScope = (int) ($this->actor['office_id'] ?? 0);
+            $countParameters = array();
+            $countBase = $countScope ? $this->participation($countScope, $countParameters) : '1 = 0';
+        }
         $queues = array('my_documents', 'incoming', 'received', 'outgoing', 'returned', 'acted', 'delivered', 'all', 'attention');
         if (($this->actor['active_role'] ?? '') === 'ovp_pad') $queues[] = 'for_approval';
-        if (($this->actor['active_role'] ?? '') === 'ovp_central_records') $queues[] = 'pad_results';
-        $localQueues = array('for_approval', 'pad_results', 'attention');
-        $counts = array();
+        if (($this->actor['active_role'] ?? '') === 'ovp_central_records') $queues = array_merge($queues, array('for_action', 'pad_results'));
+        $localQueues = array('for_approval', 'for_action', 'pad_results', 'attention');
+        $countSpecifications = array(); $countCache = array();
         foreach ($queues as $queue) {
             $local = in_array($queue, $localQueues, true);
-            $args = $local ? array() : $parameters;
-            $condition = $this->queueCondition($queue, $local ? (int) $this->actor['office_id'] : $scope, $args);
-            $count = $this->db->prepare('SELECT COUNT(*) FROM documents d WHERE ' . ($local ? '1 = 1' : $base) . ' AND (' . $condition . ')');
-            $count->execute($args);
-            $counts[$queue] = (int) $count->fetchColumn();
+            $args = $queue === 'all' ? $timelineParameters : ($local ? array() : $countParameters);
+            $condition = $this->queueCondition($queue, $local ? (int) $this->actor['office_id'] : $countScope, $args, true);
+            $countSpecifications[$queue] = array($queue === 'all' ? $timelineBase : ($local ? '1 = 1' : $countBase), $condition, $args);
         }
+        $counts = $this->workspaceCounts($countSpecifications, $countCache);
         $queue = $input['queue'] ?? 'all';
         if (!in_array($queue, $queues, true)) $this->fail('Unknown document queue.');
+        if ($queue === 'all') { $where = array($timelineBase); $parameters = $timelineParameters; }
         if (in_array($queue, $localQueues, true) && !empty($this->actor['office_id']) && $scope !== (int) $this->actor['office_id']) {
             $scope = (int) $this->actor['office_id'];
             $office = $this->office($scope);
@@ -442,31 +561,66 @@ class DocumentRouting
             $parameters[] = $status;
         }
         $sqlWhere = $where ? ' WHERE ' . implode(' AND ', $where) : '';
-        $count = $this->db->prepare('SELECT COUNT(*)' . $this->joins() . $sqlWhere);
-        $count->execute($parameters);
-        $total = (int) $count->fetchColumn();
+        // Filtering/counting needs only office names, never route history or
+        // decision joins. Reuse the matching live queue count without filters.
+        $filterFrom = ' FROM documents d';
+        if ($search !== '') $filterFrom .= ' LEFT JOIN offices source ON source.id = d.source_office_id
+            LEFT JOIN offices current ON current.id = d.current_office_id
+            LEFT JOIN offices pending ON pending.id = d.pending_office_id';
+        if ($search === '' && $status === '' && (!in_array($queue, $localQueues, true) || !empty($this->actor['office_id']))) $total = $counts[$queue];
+        else {
+            $count = $this->db->prepare('SELECT COUNT(*)' . $filterFrom . $sqlWhere);
+            $count->execute($parameters);
+            $total = (int) $count->fetchColumn();
+        }
         $pages = max(1, (int) ceil($total / 20));
         $page = min($pages, max(1, (int) ($input['page'] ?? 1)));
         $ordering = $queue === 'attention' ? 'COALESCE(receipt.received_at, d.created_at) ASC, d.id ASC' : 'd.updated_at DESC, d.id DESC';
-        $query = $this->db->prepare($this->select() . $sqlWhere . ' ORDER BY ' . $ordering . ' LIMIT 20 OFFSET ' . (($page - 1) * 20));
-        $query->execute($parameters);
+        $pageFrom = $filterFrom;
+        if ($queue === 'attention') $pageFrom .= ' LEFT JOIN document_routes receipt ON receipt.id =
+            (SELECT r.id FROM document_routes r WHERE r.document_id = d.id AND r.received_at IS NOT NULL ORDER BY r.document_id DESC, r.id DESC LIMIT 1)';
+        // Materialize the authorized page first. Only these 20 documents need
+        // the full route/receipt/decision joins, including when sorting a large timeline.
+        $pageSql = 'SELECT d.id' . $pageFrom . $sqlWhere . ' ORDER BY ' . $ordering . ' LIMIT 20 OFFSET ' . (($page - 1) * 20);
         $documents = array();
-        foreach ($query->fetchAll() as $document) $documents[] = $this->decorate($document);
+        $rows = array();
+        if ($total) {
+            $query = $this->db->prepare($this->select($pageSql) . ' ORDER BY ' . $ordering);
+            $query->execute($parameters);
+            $rows = $query->fetchAll();
+        }
+        $officeState = $rows ? $this->actorOfficeState() : array();
+        foreach ($rows as $document) $documents[] = $this->decorate($document, $officeState);
         $deskCounts = $counts;
         if ($scope !== (int) ($this->actor['office_id'] ?? 0)) {
-            $deskCounts = array();
+            $deskSpecifications = array();
             foreach ($queues as $deskQueue) {
                 $args = array();
                 $deskOffice = (int) ($this->actor['office_id'] ?? 0);
+                // Local review queues already require this holding/destination
+                // office, so their first count also includes participation.
+                if ($deskOffice && in_array($deskQueue, $localQueues, true)) {
+                    $deskSpecifications[$deskQueue] = $countSpecifications[$deskQueue];
+                    continue;
+                }
                 $deskBase = $deskOffice ? $this->participation($deskOffice, $args) : '1 = 0';
-                $deskCondition = $this->queueCondition($deskQueue, $deskOffice, $args);
-                $deskQuery = $this->db->prepare('SELECT COUNT(*) FROM documents d WHERE ' . $deskBase . ' AND (' . $deskCondition . ')');
-                $deskQuery->execute($args);
-                $deskCounts[$deskQueue] = (int) $deskQuery->fetchColumn();
+                if ($deskQueue === 'all') {
+                    $args = array();
+                    $deskBase = $this->timelineVisibility($this->isOvpModule() ? null : $deskOffice, $args);
+                }
+                $deskCondition = $this->queueCondition($deskQueue, $deskOffice, $args, true);
+                $deskSpecifications[$deskQueue] = array($deskBase, $deskCondition, $args);
             }
+            $deskCounts = $this->workspaceCounts($deskSpecifications, $countCache);
+        }
+        if ($this->isOvpModule() && $timelineScope !== null) {
+            $globalCount = $this->workspaceCounts(array('all' => array('1 = 1', '1 = 1', array())), $countCache);
+            $deskCounts['all'] = $globalCount['all'];
         }
         return array('data' => $documents, 'counts' => $counts, 'desk_counts' => $deskCounts, 'office' => $office,
-            'can_monitor' => $this->canMonitor(), 'can_register' => !is_presidential_view($this->actor) && (!empty($this->actor['office_id']) || is_administrator($this->actor)),
+            'can_monitor' => $this->canMonitor() || ($queue === 'all' && $this->canReadAllTimelines()),
+            'can_read_all_timelines' => $this->canReadAllTimelines(),
+            'can_register' => !is_presidential_view($this->actor) && (!empty($this->actor['office_id']) || is_administrator($this->actor)),
             'can_register_external' => !is_presidential_view($this->actor) && $this->canMonitor(), 'pagination' => array('page' => $page, 'pages' => $pages, 'total' => $total, 'per_page' => 20));
     }
 
@@ -615,19 +769,15 @@ class DocumentRouting
                 $description = $registration['description']; $type = $registration['type']; $origin = $registration['origin'];
                 $external = $registration['external']; $holder = $registration['holder']; $recipient = $registration['recipient'];
                 $stored = $registration['stored']; $mime = $registration['mime']; $size = $registration['size']; $name = $registration['name'];
-                $year = (int) (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format('Y');
-                $seed = $this->db->prepare('INSERT INTO document_number_series (series_year, last_number) VALUES (?, 0) ON DUPLICATE KEY UPDATE series_year = series_year');
-                $seed->execute(array($year));
-                $counter = $this->db->prepare('SELECT last_number FROM document_number_series WHERE series_year = ? FOR UPDATE');
-                $counter->execute(array($year));
-                $next = (int) $counter->fetchColumn() + 1;
+                $year = DocumentFileCodes::currentYear();
+                $codes = new DocumentFileCodes($this->db);
+                $next = $codes->lockYear($year) + 1;
                 // The counter lock also serializes retries of the same registration.
                 $existing = $this->registeredSubmission($key, $hash);
                 if ($existing) return array('reference_no' => $existing['reference_no'], 'replayed' => true);
-                if ($next > 4294967295) $this->fail('The annual document number series is exhausted.', 409);
-                $reference = 'PAD-' . $year . '-' . str_pad((string) $next, 6, '0', STR_PAD_LEFT);
-                $update = $this->db->prepare('UPDATE document_number_series SET last_number = ? WHERE series_year = ?');
-                $update->execute(array($next, $year));
+                if ($next > DocumentFileCodes::MAX_NUMBER) $this->fail('The annual document number series is exhausted.', 409);
+                $reference = DocumentFileCodes::format($year, $next);
+                $codes->setLastNumber($year, $next);
                 // Registration and its first receipt must describe the same instant.
                 $this->timestampSql();
                 $registeredAt = $this->recordedAt;
@@ -729,11 +879,9 @@ class DocumentRouting
             if ($action === 'act') {
                 if ($document['act_blockers']) $this->fail(implode(' ', $document['act_blockers']));
                 if (!is_file(safe_upload_directory() . DIRECTORY_SEPARATOR . basename($document['stored_file_name']))) $this->fail('The attached document file is missing. Open View and upload it before marking the document Acted.');
-                if (($input['hard_copy_received'] ?? false) !== true) $this->fail('Confirm that Records has received the hard copy from PAD.');
                 $owner = filter_var($input['owner_office_id'] ?? null, FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
                 if (!$owner || $owner === $office) $this->fail('Select the owner office to receive this document.');
                 $destination = $this->receivingOffice($owner);
-                if ($document['pending_office_id']) $this->confirmReceipt($document, $office, 'Hard copy from PAD confirmed during Act.');
                 $update = $this->db->prepare("UPDATE documents SET current_office_id = ?, recipient_office_id = ?, pending_office_id = ?,
                     movement_type = 'forward', status = 'in_transit', updated_at = " . $this->timestampSql() . ' WHERE id = ?');
                 $update->execute(array($office, $owner, $owner, $document['id']));

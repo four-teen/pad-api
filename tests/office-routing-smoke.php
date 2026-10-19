@@ -39,6 +39,16 @@ function routing_check($condition, $message)
     if (!$condition) throw new RuntimeException($message);
     $checks++;
 }
+function routing_outgoing_check(DocumentRouting $routing, array $references, $message, array $input = array(), $deskCount = null)
+{
+    $workspace = $routing->workspace(array_merge($input, array('queue' => 'outgoing')));
+    $actual = array_column($workspace['data'], 'reference_no');
+    sort($references); sort($actual);
+    $expected = count($references);
+    routing_check($actual === $references && $workspace['pagination']['total'] === $expected
+        && $workspace['counts']['outgoing'] === $expected
+        && $workspace['desk_counts']['outgoing'] === ($deskCount === null ? $expected : $deskCount), $message);
+}
 function routing_rejects(callable $callback, $status, $message)
 {
     try { $callback(); } catch (ApiException $error) {
@@ -102,8 +112,9 @@ install_pad_reviews($db);
     foreach ($db->query('SELECT u.*, o.code AS office_code FROM users u LEFT JOIN offices o ON o.id = u.office_id')->fetchAll() as $actor) { $actor['active_role'] = $actor['roles']; $actors[$actor['id']] = new DocumentRouting($db, $actor); }
     $one = $actors[1]; $two = $actors[2]; $three = $actors[3];
     $reference = save_fixture($one, fixture_registration('workflow-fixture-0001', 'Workflow test'))['reference_no'];
-    routing_check(preg_match('/^PAD-\d{4}-000001$/', $reference), 'First registration uses the annual official number.');
+    routing_check(preg_match('/^\d{2}-00001$/', $reference), 'First registration uses the two-digit year and five-digit annual number.');
     routing_check($one->record($reference)['permissions']['route'], 'The registering office holds the document.');
+    routing_outgoing_check($one, array(), 'An unsent registration has no Outgoing row, count, or dashboard workload.');
     $registered = $one->record($reference, true);
     routing_check($registered['created_at'] === $registered['updated_at']
         && $registered['created_at'] === $registered['history'][0]['created_at']
@@ -115,12 +126,26 @@ install_pad_reviews($db);
     routing_rejects(function () use ($one, $reference) { $one->action($reference, 'route', array('to_office_id' => 1)); }, 422, 'Routing to the same office is rejected.');
     routing_rejects(function () use ($one, $reference) { $one->action($reference, 'route', array('to_office_id' => 5)); }, 422, 'Inactive destinations are rejected.');
     $one->action($reference, 'route', array('to_office_id' => 2, 'notes' => 'Please process.'));
+    routing_outgoing_check($one, array($reference), 'A pending handoff appears in its sender Outgoing list, pagination, navigation count, and dashboard count.');
+    routing_outgoing_check($two, array(), 'The destination does not count an incoming handoff as Outgoing.');
+    routing_check($two->workspace(array('queue' => 'all'))['pagination']['total'] === 0
+        && $two->workspace(array('queue' => 'incoming'))['counts']['all'] === 0,
+        'An ordinary office does not list or count a receive-only document in All Timeline.');
+    routing_outgoing_check($actors[5], array($reference), 'All-office monitoring includes the unreceived handoff once.', array('office_id' => 'all'), 0);
+    routing_outgoing_check($actors[5], array($reference), 'A monitored office uses its latest pending dispatch for Outgoing.', array('office_id' => 1), 0);
     $document = $two->record($reference);
     routing_check((int) $document['current_office_id'] === 1 && (int) $document['pending_office_id'] === 2, 'Sending preserves the holder until receipt.');
     routing_check($two->workspace(array('queue' => 'incoming'))['counts']['incoming'] === 1, 'The destination sees its incoming document.');
     routing_rejects(function () use ($two, $reference) { $two->action($reference, 'route', array('to_office_id' => 3)); }, 409, 'The destination cannot forward before receipt.');
     routing_rejects(function () use ($one, $reference) { $one->action($reference, 'receive', array()); }, 409, 'The sender cannot confirm destination receipt.');
     $two->action($reference, 'receive', array('notes' => 'Received original.'));
+    routing_check($two->workspace(array('queue' => 'all'))['pagination']['total'] === 0
+        && $two->workspace(array('queue' => 'received'))['pagination']['total'] === 1,
+        'Confirmed receipt remains in Received while ordinary All Timeline stays limited to created or sent documents.');
+    routing_outgoing_check($one, array(), 'Destination receipt removes the sender Outgoing row and all matching counts.');
+    routing_outgoing_check($actors[5], array(), 'Destination receipt also removes the handoff from all-office Outgoing.', array('office_id' => 'all'), 0);
+    routing_check($one->workspace(array('queue' => 'all'))['pagination']['total'] === 1
+        && count($one->record($reference, true)['history']) === 3, 'The sender retains All Timeline access and full handoff history after receipt.');
     $document = $two->record($reference, true);
     routing_check((int) $document['current_office_id'] === 2 && $document['pending_office_id'] === null, 'Receipt transfers holding responsibility.');
     routing_check($document['updated_at'] === $document['history'][2]['created_at']
@@ -133,17 +158,28 @@ install_pad_reviews($db);
         && $document['history'][2]['action'] === 'received' && $document['history'][2]['acted_by_name'] === 'Receiver', 'Sending and receipt preserve separate actors and events.');
     routing_rejects(function () use ($two, $reference) { $two->action($reference, 'receive', array()); }, 409, 'Duplicate receipt creates no extra movement.');
     $two->action($reference, 'route', array('to_office_id' => 3));
+    routing_check($two->workspace(array('queue' => 'all'))['pagination']['total'] === 1, 'Sending a received document adds it to that office All Timeline.');
+    routing_outgoing_check($two, array($reference), 'Forwarding creates an Outgoing item for the new sender.');
+    routing_outgoing_check($one, array(), 'A later forward does not reappear in an earlier sender Outgoing.');
+    routing_outgoing_check($actors[5], array(), 'Monitoring an earlier sender excludes a different office pending handoff.', array('office_id' => 1), 0);
     $three->action($reference, 'receive', array());
+    routing_outgoing_check($two, array(), 'Receipt at a third office clears the latest sender Outgoing.');
     routing_check($one->record($reference)['reference_no'] === $reference, 'Earlier offices retain timeline access after forwarding.');
     routing_rejects(function () use ($three, $reference) { $three->action($reference, 'return', array()); }, 422, 'Returning requires a reason.');
     $three->action($reference, 'return', array('notes' => 'Missing approval.'));
+    routing_outgoing_check($three, array($reference), 'A pending return belongs to the returning office Outgoing.');
+    routing_outgoing_check($two, array(), 'The return destination sees no Outgoing item from its earlier dispatch.');
+    routing_outgoing_check($one, array(), 'A historical sender stays out of Outgoing while another office returns the document.');
     routing_check($two->workspace(array('queue' => 'returned'))['pagination']['total'] === 1
         && $three->workspace(array('queue' => 'returned'))['pagination']['total'] === 0, 'Returned queue belongs to the returning destination.');
     $two->action($reference, 'receive', array());
+    routing_outgoing_check($three, array(), 'Receipt of a returned document clears the returning office Outgoing.');
+    routing_check($two->workspace(array('queue' => 'received'))['pagination']['total'] === 1, 'The confirmed return appears in its current holder Received queue.');
     routing_rejects(function () use ($two, $reference) { $two->action($reference, 'act', array()); }, 422, 'Action taken requires remarks.');
     routing_rejects(function () use ($two, $reference) { $two->action($reference, 'act', array('notes' => 'Approved and signed.')); }, 409, 'Ordinary office handoffs cannot be marked Acted.');
     routing_rejects(function () use ($two, $reference) { $two->action($reference, 'deliver', array()); }, 422, 'Delivery requires recipient details.');
     $two->action($reference, 'deliver', array('notes' => 'Released to applicant at front desk.'));
+    routing_outgoing_check($one, array(), 'Delivered documents with earlier dispatch history stay out of Outgoing.');
     routing_check($one->workspace(array('queue' => 'delivered'))['pagination']['total'] === 1, 'Participants can see final delivery.');
     routing_rejects(function () use ($two, $reference) { $two->action($reference, 'route', array('to_office_id' => 1)); }, 409, 'Finished documents cannot be routed again.');
     routing_rejects(function () use ($actors, $reference) { $actors[5]->action($reference, 'receive', array()); }, 403, 'Monitoring does not let an unassigned administrator receive for an office.');
@@ -169,11 +205,14 @@ install_pad_reviews($db);
     routing_check($two->record($draft)['permissions']['receive'] && $two->record($draft)['permissions']['return']
         && !$two->record($draft)['permissions']['act'], 'Awaiting receipt permits Receive and Return, without Act.');
     $two->action($draft, 'return', array('notes' => 'Wrong destination; returning before receipt.'));
+    routing_outgoing_check($one, array(), 'Return before receipt removes the superseded original sender Outgoing item.');
+    routing_outgoing_check($two, array($draft), 'Return before receipt uses the latest sender, even while the stored holder is the original office.');
     $declined = $one->record($draft, true);
     routing_check((int) $declined['pending_office_id'] === 1 && (int) $declined['current_office_id'] === 1
         && $declined['history'][1]['received_at'] === null, 'Return before receipt targets the exact sender without inventing a receipt.');
     routing_rejects(function () use ($two, $draft) { $two->action($draft, 'receive', array()); }, 409, 'A stale destination cannot receive a document it returned.');
     $one->action($draft, 'receive', array());
+    routing_outgoing_check($two, array(), 'Receipt of a pre-receipt return ignores the older unreceived dispatch and clears Outgoing.');
     routing_check(!$one->record($draft)['is_my_document'] && !$one->record($draft)['permissions']['delete'], 'An office receives its own returned document in Received, retaining dispatch history.');
     $one->action($draft, 'route', array('to_office_id' => 2));
     $two->action($draft, 'receive', array());
@@ -277,7 +316,17 @@ install_pad_reviews($db);
     routing_check($http('/api/documents', 'POST', $multipart('Changed registration'), 'multipart/form-data; boundary=padFixtureBoundary')['status'] === 409, 'Changed HTTP retry details are rejected.');
     routing_check($http('/api/documents', 'POST', $multipart('Bad file', 'Plain text', 'application/pdf'), 'multipart/form-data; boundary=padFixtureBoundary')['status'] === 422, 'A file with a forged MIME header is rejected.');
     routing_check($http('/api/documents/' . $httpReference . '/route', 'POST', json_encode(array('to_office_id' => 2)))['status'] === 200, 'Authenticated HTTP sending succeeds.');
+    $pendingOutgoing = $http('/api/routing/workspace?queue=outgoing');
+    routing_check($pendingOutgoing['status'] === 200 && $pendingOutgoing['data']['counts']['outgoing'] === 1
+        && $pendingOutgoing['data']['desk_counts']['outgoing'] === 1 && $pendingOutgoing['data']['pagination']['total'] === 1
+        && array_column($pendingOutgoing['data']['data'], 'reference_no') === array($httpReference), 'HTTP Outgoing returns the pending document with matching list and dashboard counts.');
     routing_check($http('/api/documents/' . $httpReference . '/receive', 'POST', '{}', 'application/json', 2)['status'] === 200, 'Authenticated destination HTTP receipt succeeds.');
+    $receivedOutgoing = $http('/api/routing/workspace?queue=outgoing');
+    routing_check($receivedOutgoing['status'] === 200 && $receivedOutgoing['data']['counts']['outgoing'] === 0
+        && $receivedOutgoing['data']['desk_counts']['outgoing'] === 0 && $receivedOutgoing['data']['pagination']['total'] === 0
+        && $receivedOutgoing['data']['data'] === array(), 'HTTP receipt removes the sender Outgoing list item and counts together.');
+    $senderTimeline = $http('/api/routing/workspace?queue=all&search=' . rawurlencode($httpReference));
+    routing_check($senderTimeline['status'] === 200 && $senderTimeline['data']['pagination']['total'] === 1, 'The same HTTP sender retains the document in All Timeline after receipt.');
     $detail = $http('/api/documents/' . $httpReference, 'GET', '', 'application/json', 2);
     routing_check($detail['status'] === 200 && count($detail['data']['data']['history']) === 3 && $detail['data']['data']['permissions']['route'], 'HTTP detail returns the full timeline and destination permissions.');
     $download = $http('/api/documents/' . $httpReference . '/download', 'GET', '', 'application/json', 2);
@@ -510,6 +559,44 @@ install_pad_reviews($db);
     routing_check($http('/api/admin/offices', 'GET', '', 'application/json', 1, 'admin')['status'] === 200, 'The same Google token can select the Administrator module.');
     $db->exec("UPDATE users SET roles = 'sksu_officials' WHERE id = 1");
     routing_check($http('/api/admin/offices', 'GET', '', 'application/json', 1, 'admin')['status'] === 403, 'Removing Administrator revokes the selected mode for an existing token.');
+
+    // File-code administration uses the same annual lock and counter as registration.
+    $year = DocumentFileCodes::currentYear();
+    $codes = new DocumentFileCodes($db);
+    routing_check(DocumentFileCodes::format(2026, 6549) === '26-06549', 'The requested file-code example is formatted exactly.');
+    $counterBeforeRead = $db->query('SELECT SUM(last_number) FROM document_number_series')->fetchColumn();
+    $settings = $http('/api/admin/file-codes', 'GET', '', 'application/json', 5, 'admin');
+    routing_check($settings['status'] === 200 && $settings['data']['data']['current_year'] === $year, 'Administrators can read the current Manila-year file-code settings.');
+    routing_check($counterBeforeRead === $db->query('SELECT SUM(last_number) FROM document_number_series')->fetchColumn(), 'Reading settings does not allocate or reserve a number.');
+    routing_check($http('/api/admin/file-codes', 'GET', '', 'application/json', 2, 'sksu_officials')['status'] === 403, 'Office staff cannot read file-code administration.');
+    $edit = array('year' => $year, 'next_number' => 6549, 'expected_next_number' => $settings['data']['data']['selected']['next_number']);
+    routing_check($http('/api/admin/file-codes', 'PATCH', json_encode($edit), 'application/json', 2, 'sksu_officials')['status'] === 403, 'Office staff cannot change the file-code counter.');
+    $savedSettings = $http('/api/admin/file-codes', 'PATCH', json_encode($edit), 'application/json', 5, 'admin');
+    routing_check($savedSettings['status'] === 200 && $savedSettings['data']['data']['selected']['preview'] === DocumentFileCodes::format($year, 6549), 'Administrator edits persist the requested next file code.');
+    $adjusted = save_fixture($one, fixture_registration('file-code-adjusted-0001'));
+    routing_check($adjusted['reference_no'] === DocumentFileCodes::format($year, 6549), 'The next real registration uses the administrator-configured number.');
+    routing_check($one->record($reference)['reference_no'] === $reference, 'Editing the counter preserves existing document references.');
+    routing_check($http('/api/admin/file-codes', 'PATCH', json_encode($edit), 'application/json', 5, 'admin')['status'] === 409, 'An edit based on a stale number cannot overwrite a concurrent registration.');
+    $edit['expected_next_number'] = 6550; $edit['next_number'] = 1;
+    routing_check($http('/api/admin/file-codes', 'PATCH', json_encode($edit), 'application/json', 5, 'admin')['status'] === 422, 'Previously issued and reserved numbers cannot be reused.');
+    foreach (array(0, -1, 1.5, true, array(), 4294967296) as $invalidNext) {
+        $edit['next_number'] = $invalidNext;
+        routing_check($http('/api/admin/file-codes', 'PATCH', json_encode($edit), 'application/json', 5, 'admin')['status'] === 422, 'Invalid next-number input is rejected.');
+    }
+    routing_check($http('/api/admin/file-codes?year=bad', 'GET', '', 'application/json', 5, 'admin')['status'] === 422, 'Invalid series years are rejected.');
+    $legacy = $db->prepare("UPDATE documents SET reference_no = ?, number_year = NULL, number_sequence = NULL WHERE submission_key = 'pagination-fixture-0'");
+    $legacy->execute(array(substr((string) $year, -2) . '-06570_1'));
+    routing_check($codes->settings()['selected']['next_number'] === 6571, 'Imported revision codes without number metadata reserve their numeric portion.');
+    $afterImport = save_fixture($one, fixture_registration('file-code-after-import'));
+    routing_check($afterImport['reference_no'] === DocumentFileCodes::format($year, 6571), 'Registration continues beyond imported file codes instead of colliding or restarting.');
+    $nextYear = $year + 1;
+    $future = $codes->save(array('year' => $nextYear, 'next_number' => 100, 'expected_next_number' => 1));
+    routing_check($future['selected']['preview'] === DocumentFileCodes::format($nextYear, 100)
+        && $codes->settings()['selected']['next_number'] === 6572, 'Preparing a future annual series leaves the current year unchanged.');
+    $codes->save(array('year' => $year, 'next_number' => DocumentFileCodes::MAX_NUMBER, 'expected_next_number' => 6572));
+    routing_check(save_fixture($one, fixture_registration('file-code-last-number'))['reference_no'] === DocumentFileCodes::format($year, DocumentFileCodes::MAX_NUMBER), 'Large sequence numbers grow beyond the minimum five-digit padding without truncation.');
+    routing_check($codes->settings()['selected']['next_number'] === null, 'An exhausted counter has no next-number preview.');
+    routing_rejects(function () use ($one) { save_fixture($one, fixture_registration('file-code-exhausted')); }, 409, 'Exhausted annual counters reject registration without wrapping around.');
 
     echo 'Passed ' . $checks . ' office routing checks, including 12 concurrent saves, using isolated sample data.' . PHP_EOL;
 } finally {
