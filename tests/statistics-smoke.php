@@ -24,7 +24,7 @@ $management->exec('CREATE DATABASE `' . $testDatabase . '` CHARACTER SET utf8mb4
 $httpServer = null;
 $serverLog = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pad-statistics-' . bin2hex(random_bytes(6)) . '.log';
 try {
-    foreach (array('offices', 'office_officials', 'users', 'documents', 'document_routes', 'document_pad_reviews') as $table) {
+    foreach (array('offices', 'office_officials', 'users', 'documents', 'document_routes', 'document_pad_reviews', 'document_people', 'document_travel_details') as $table) {
         $management->exec('CREATE TABLE `' . $testDatabase . '`.`' . $table . '` LIKE `' . $source . '`.`' . $table . '`');
     }
     putenv('DB_DATABASE=' . $testDatabase);
@@ -116,10 +116,14 @@ try {
     stats_rejects(function () use ($report) { $report('ovp_pad', array('start_date' => '2025-05-01')); }, 422, 'Reversed reporting periods are rejected.');
     stats_rejects(function () use ($report) { $report('ovp_pad', array('document_type' => array('Memorandum'))); }, 422, 'Array type filters are rejected.');
     $routingPad = new DocumentRouting($db, $actor('ovp_pad'));
-    stats_rejects(function () use ($routingPad) { $routingPad->record('PAD-2025-000004'); }, 403, 'Global reporting does not expand PAD document-detail access.');
-    stats_rejects(function () use ($routingPad) { $routingPad->workspace(array('office_id' => 'all')); }, 403, 'Global reporting does not grant PAD cross-office operations.');
+    $foreignRecord = $routingPad->record('PAD-2025-000004');
+    stats_check(!array_filter($foreignRecord['permissions']), 'PAD global timeline detail access remains read-only for another office.');
+    stats_rejects(function () use ($routingPad) { $routingPad->workspace(array('queue' => 'incoming', 'office_id' => 'all')); }, 403, 'PAD global timeline does not grant cross-office working queues.');
+    stats_rejects(function () use ($routingPad) { $routingPad->action('PAD-2025-000004', 'complete', array()); }, 409, 'Global monitoring does not grant PAD another office action rights.');
     $workspace = (new DocumentRouting($db, $actor('ovp_central_records')))->workspace(array('office_id' => 'all'));
-    stats_check($workspace['counts']['all'] === 8 && $workspace['desk_counts']['all'] === 4, 'Global monitoring and own-desk queues remain separate.');
+    stats_check($workspace['counts']['all'] === 8 && $workspace['desk_counts']['all'] === 8
+        && $workspace['desk_counts']['incoming'] === 0 && $workspace['desk_counts']['received'] === 1,
+        'Global timeline totals agree while own-desk working queues remain local.');
     $attention = (new DocumentRouting($db, $actor('sksu_officials')))->workspace(array('queue' => 'attention'));
     stats_check($attention['pagination']['total'] === 1 && (int) $attention['data'][0]['id'] === 6, 'Overview attention includes received correction work and excludes unsent, dispatched and finished records.');
     stats_check($attention['data'][0]['permissions']['route'], 'Attention results retain their existing office action permissions.');
@@ -171,7 +175,9 @@ try {
     stats_check($httpAttention['status'] === 200 && $httpAttention['data']['pagination']['total'] === 1 && (int) $httpAttention['data']['data'][0]['id'] === 6, 'HTTP Overview lists only the active office’s received work needing attention.');
     stats_check($http('/api/doc_router/routing/statistics' . $query . '&office_id=all', 'sksu_officials')['status'] === 403, 'HTTP office query tampering is denied.');
     stats_check($http('/api/doc_router/routing/statistics?start_date=2025-02-30', 'ovp_pad')['status'] === 422, 'HTTP invalid dates produce validation responses.');
-    stats_check($http('/api/doc_router/documents/PAD-2025-000004', 'ovp_pad')['status'] === 403, 'HTTP aggregate permission cannot reveal foreign document detail.');
+    $httpForeign = $http('/api/doc_router/documents/PAD-2025-000004', 'ovp_pad');
+    stats_check($httpForeign['status'] === 200 && !array_filter($httpForeign['data']['data']['permissions']),
+        'HTTP PAD global timeline permits foreign detail reading without foreign-office actions.');
     $db->exec("UPDATE users SET roles='admin,ovp_central_records,sksu_officials' WHERE id=1");
     stats_check($http('/api/doc_router/routing/statistics' . $query, 'ovp_pad')['status'] === 403, 'Removing the PAD role revokes existing-token statistics access.');
     echo 'Statistics checks passed: ' . $checks . PHP_EOL;

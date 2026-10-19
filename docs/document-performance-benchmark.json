@@ -1,0 +1,84 @@
+{
+  "date": "2026-10-19",
+  "database_version": "5.7.25",
+  "documents": 1000,
+  "routes": 23200,
+  "method": "Sequential baseline and tuned runs on isolated generated databases; three measured runs after one warm-up; service time excludes HTTP authentication, network, and browser rendering.",
+  "results": [
+    {
+      "role": "ovp_central_records",
+      "input": {
+        "queue": "all"
+      },
+      "before_ms": 347.4,
+      "after_ms": 171.1,
+      "faster_percent": 51,
+      "same_response": true,
+      "baseline_hash": "081e81e908adaceeebea205230ed0f6f99800ce592e8e5debae4d406a6bb2c8c",
+      "tuned_hash": "081e81e908adaceeebea205230ed0f6f99800ce592e8e5debae4d406a6bb2c8c"
+    },
+    {
+      "role": "ovp_central_records",
+      "input": {
+        "queue": "for_action"
+      },
+      "before_ms": 373.6,
+      "after_ms": 184.6,
+      "faster_percent": 51,
+      "same_response": true,
+      "baseline_hash": "08d45d17c4c0b69a194a063915eb44a4d8fe248b7082c8a4e56d80b80d6cbc51",
+      "tuned_hash": "08d45d17c4c0b69a194a063915eb44a4d8fe248b7082c8a4e56d80b80d6cbc51"
+    },
+    {
+      "role": "ovp_central_records",
+      "input": {
+        "queue": "all",
+        "office_id": 10,
+        "search": "Request"
+      },
+      "before_ms": 441.8,
+      "after_ms": 196.4,
+      "faster_percent": 56,
+      "same_response": true,
+      "baseline_hash": "6241e75ce91cea553df22eb4bf241f4f06abb2a495e6a14a9b28984cde07d35c",
+      "tuned_hash": "6241e75ce91cea553df22eb4bf241f4f06abb2a495e6a14a9b28984cde07d35c"
+    },
+    {
+      "role": "ovp_pad",
+      "input": {
+        "queue": "for_approval"
+      },
+      "before_ms": 336.1,
+      "after_ms": 176.3,
+      "faster_percent": 48,
+      "same_response": true,
+      "baseline_hash": "b8d4a571b0568d42e331be3d477a773b5cc6c666eeed1f8a19835f82f385c3ba",
+      "tuned_hash": "b8d4a571b0568d42e331be3d477a773b5cc6c666eeed1f8a19835f82f385c3ba"
+    },
+    {
+      "role": "sksu_officials",
+      "input": {
+        "queue": "all",
+        "page": 3
+      },
+      "before_ms": 230.5,
+      "after_ms": 186.3,
+      "faster_percent": 19,
+      "same_response": true,
+      "baseline_hash": "0bfa5916247c28d92a8ab796a9b857e42cd7065822aa3a20461115ed3384c493",
+      "tuned_hash": "0bfa5916247c28d92a8ab796a9b857e42cd7065822aa3a20461115ed3384c493"
+    },
+    {
+      "role": "sksu_officials",
+      "input": {
+        "queue": "incoming"
+      },
+      "before_ms": 158.4,
+      "after_ms": 121,
+      "faster_percent": 24,
+      "same_response": true,
+      "baseline_hash": "67a0f386176c87c8f230c992ef7d38ace69a4554856d3382213180e0fcb2189c",
+      "tuned_hash": "67a0f386176c87c8f230c992ef7d38ace69a4554856d3382213180e0fcb2189c"
+    }
+  ]
+}
