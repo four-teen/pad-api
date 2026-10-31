@@ -255,19 +255,23 @@ try {
     $db->exec("CREATE TRIGGER reject_final_action BEFORE INSERT ON document_routes FOR EACH ROW
         BEGIN IF NEW.action='acted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Intentional finalization failure'; END IF; END");
     $beforeFinal = $records->record($final, true);
-    try { $records->action($final, 'act', array('notes' => 'Finalized', 'hard_copy_received' => true, 'owner_office_id' => 9)); throw new RuntimeException('Expected finalization rollback.'); }
+    try { $records->action($final, 'act', array('owner_office_ids' => array(9, 10), 'hard_copy_received' => true)); throw new RuntimeException('Expected finalization rollback.'); }
     catch (PDOException $expected) {}
     $db->exec('DROP TRIGGER reject_final_action');
     $afterFinal = $records->record($final, true);
     review_check($afterFinal['status'] === 'received' && $afterFinal['pending_office_id'] === null && (int) $afterFinal['current_office_id'] === 2
         && $afterFinal['history'] === $beforeFinal['history'], 'A failed Act dispatch preserves the independently confirmed receipt and rolls back only its action and dispatch.');
-    $records->action($final, 'act', array('notes' => 'Final document checked and released.', 'owner_office_id' => 9));
+    $records->action($final, 'act', array('owner_office_ids' => array(9, 10), 'notes' => 'This client note must be ignored.'));
     review_check(count(array_filter($records->record($final, true)['history'], function ($event) { return $event['action'] === 'received' && (int) $event['to_office_id'] === 2; })) === 1,
         'Act does not duplicate the separately confirmed Records receipt.');
     $finished = $records->record($final, true);
-    review_check($finished['status'] === 'in_transit' && (int) $finished['current_office_id'] === 2 && (int) $finished['pending_office_id'] === 9
-        && end($finished['history'])['action'] === 'acted' && end($finished['history'])['dispatched_at'], 'Act records the Records milestone and dispatch while awaiting real owner delivery.');
-    review_check($finished['is_owner_release'] && (int) $finished['recipient_office_id'] === 9 && $finished['release_delivered_at'] === null, 'Owner destination and pending delivery are recorded independently from Acted.');
+    $actedRoutes = array_values(array_filter($finished['history'], function ($event) { return $event['action'] === 'acted'; }));
+    review_check($finished['status'] === 'in_transit' && (int) $finished['current_office_id'] === 2 && $finished['pending_office_id'] === null
+        && end($finished['history'])['action'] === 'acted' && count($actedRoutes) === 2 && count($finished['release_recipients']) === 2,
+        'Act creates a separate dispatch route for each selected office while the document remains in transit.');
+    review_check($finished['is_owner_release'] && $finished['recipient_office_id'] === null && (int) $finished['release_recipient_count'] === 2
+        && (int) $finished['release_pending_count'] === 2 && array_unique(array_column($actedRoutes, 'notes')) === array('Signed and noted; finalize at Records.'),
+        'Both destination routes use the saved PAD final note; the client action note is ignored.');
     foreach (array('route', 'return', 'receive', 'act', 'complete', 'deliver', 'upload_file', 'delete') as $action) {
         review_check(!$finished['permissions'][$action], 'Final Act closes ' . $action . '.');
     }
@@ -279,12 +283,23 @@ try {
     review_check($records->workspace(array('queue' => 'delivered', 'search' => $final))['pagination']['total'] === 0, 'Act and dispatch do not fabricate owner delivery.');
     review_check($records->workspace(array('queue' => 'acted', 'status' => 'acted', 'search' => $final))['pagination']['total'] === 1, 'Acted filter includes dispatched Records actions.');
     $ownerIncoming = $office->workspace(array('queue' => 'incoming', 'search' => $final));
-    review_check($ownerIncoming['pagination']['total'] === 1 && $office->record($final)['permissions']['receive'], 'Only the selected owner can confirm the final incoming handoff.');
+    $secondOwnerIncoming = $other->workspace(array('queue' => 'incoming', 'search' => $final));
+    review_check($ownerIncoming['pagination']['total'] === 1 && $office->record($final)['permissions']['receive']
+        && $secondOwnerIncoming['pagination']['total'] === 1 && $other->record($final)['permissions']['receive'],
+        'Each selected owner office receives its own independently actionable incoming handoff.');
     review_rejects(function () use ($records, $final) { $records->action($final, 'receive', array()); }, 409, 'Records cannot confirm delivery on behalf of its owner.');
     $office->action($final, 'receive', array('notes' => 'Owner received the released hard copy.'));
+    $partial = $records->record($final, true);
+    review_check($partial['status'] === 'in_transit' && $partial['pending_office_id'] === null && (int) $partial['release_pending_count'] === 1
+        && $office->workspace(array('queue' => 'incoming', 'search' => $final))['pagination']['total'] === 0
+        && $office->workspace(array('queue' => 'delivered', 'search' => $final))['pagination']['total'] === 1
+        && $other->workspace(array('queue' => 'incoming', 'search' => $final))['pagination']['total'] === 1,
+        'One office receipt is recorded independently while the other office remains in Awaiting Receipt.');
+    $other->action($final, 'receive', array('notes' => 'Second owner received its copy.'));
     $delivered = $records->record($final, true);
     review_check($delivered['status'] === 'delivered' && (int) $delivered['current_office_id'] === 9 && !$delivered['pending_office_id']
-        && $delivered['release_delivered_at'] && end($delivered['history'])['action'] === 'delivered', 'Owner receipt confirms final delivery and preserves its time and custody.');
+        && $delivered['release_pending_count'] === 0 && $delivered['release_delivered_at'] && end($delivered['history'])['action'] === 'delivered',
+        'Global delivery completes after every selected office confirms receipt.');
     review_check($records->workspace(array('queue' => 'acted', 'search' => $final))['pagination']['total'] === 1
         && $records->workspace(array('queue' => 'delivered', 'search' => $final))['pagination']['total'] === 1, 'Records retains its Acted archive after confirmed delivery.');
     review_rejects(function () use ($office, $final) { $office->action($final, 'receive', array()); }, 409, 'Owner receipt retry cannot duplicate final delivery.');

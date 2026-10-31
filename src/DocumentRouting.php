@@ -134,8 +134,32 @@ class DocumentRouting
         return (int) $this->db->lastInsertId();
     }
 
+    private function releaseBatchStartIdSql()
+    {
+        return '(SELECT COALESCE(
+            (SELECT pr.result_route_id FROM document_pad_reviews pr WHERE pr.document_id = d.id AND pr.result_route_id IS NOT NULL ORDER BY pr.id DESC LIMIT 1),
+            (SELECT pad_result.id FROM document_routes pad_result WHERE pad_result.document_id = d.id AND pad_result.action = \'returned\'
+                AND pad_result.dispatched_at IS NOT NULL AND (pad_result.actor_role = \'ovp_pad\' OR (pad_result.actor_role IS NULL
+                    AND EXISTS (SELECT 1 FROM users pad_user WHERE pad_user.is_active = 1 AND pad_user.ovp_pad_office_id = pad_result.from_office_id
+                        AND FIND_IN_SET(\'ovp_pad\', pad_user.roles)))) ORDER BY pad_result.id DESC LIMIT 1), 0))';
+    }
+
+    private function ownerReleaseCondition($office, $receiptCondition)
+    {
+        $officeCondition = $office ? ' AND release_route.to_office_id = ' . (int) $office : '';
+        return 'EXISTS (SELECT 1 FROM document_routes release_route WHERE release_route.document_id = d.id
+            AND release_route.action = \'acted\' AND release_route.actor_role = \'ovp_central_records\'
+            AND release_route.dispatched_at IS NOT NULL AND release_route.id > ' . $this->releaseBatchStartIdSql()
+            . $officeCondition . ' AND ' . $receiptCondition . ')';
+    }
+
     private function joins($pageSql = null)
     {
+        $releaseBatchStart = $this->releaseBatchStartIdSql();
+        $releaseRecipientFilter = '';
+        if (in_array($this->actor['active_role'] ?? '', array('sksu_officials', 'ovp_pad'), true) && !empty($this->actor['office_id'])) {
+            $releaseRecipientFilter = ' AND fr.to_office_id = ' . (int) $this->actor['office_id'];
+        }
         return ($pageSql === null ? ' FROM documents d' : ' FROM (' . $pageSql . ') document_page STRAIGHT_JOIN documents d ON d.id = document_page.id') . '
             LEFT JOIN offices source ON source.id = d.source_office_id
             LEFT JOIN offices current ON current.id = d.current_office_id
@@ -152,6 +176,7 @@ class DocumentRouting
             LEFT JOIN offices review_records ON review_records.id = review.central_records_office_id
             LEFT JOIN document_routes final_release ON final_release.id = (SELECT fr.id FROM document_routes fr
                 WHERE fr.document_id = d.id AND fr.action = \'acted\' AND fr.dispatched_at IS NOT NULL AND fr.actor_role = \'ovp_central_records\'
+                    AND fr.id > ' . $releaseBatchStart . $releaseRecipientFilter . '
                 ORDER BY fr.document_id DESC, fr.id DESC LIMIT 1)';
     }
 
@@ -168,6 +193,18 @@ class DocumentRouting
             movement.action AS last_movement_action, final_release.id AS release_route_id,
             final_release.from_office_id AS release_records_office_id, final_release.to_office_id AS release_owner_office_id,
             final_release.dispatched_at AS release_acted_at, final_release.received_at AS release_delivered_at,
+            ' . $this->releaseBatchStartIdSql() . ' AS release_batch_start_id,
+            (SELECT COUNT(*) FROM document_routes release_count WHERE release_count.document_id = d.id AND release_count.action = \'acted\'
+                AND release_count.actor_role = \'ovp_central_records\' AND release_count.dispatched_at IS NOT NULL
+                AND release_count.id > ' . $this->releaseBatchStartIdSql() . ') AS release_recipient_count,
+            (SELECT COUNT(*) FROM document_routes release_pending WHERE release_pending.document_id = d.id AND release_pending.action = \'acted\'
+                AND release_pending.actor_role = \'ovp_central_records\' AND release_pending.dispatched_at IS NOT NULL
+                AND release_pending.received_at IS NULL AND release_pending.id > ' . $this->releaseBatchStartIdSql() . ') AS release_pending_count,
+            (SELECT GROUP_CONCAT(DISTINCT CONCAT(release_pending_office.name, IF(release_pending_office.campus IS NULL OR release_pending_office.campus = \'\', \'\', CONCAT(\' · \', release_pending_office.campus))) ORDER BY release_pending_office.name SEPARATOR \', \')
+                FROM document_routes release_pending_route INNER JOIN offices release_pending_office ON release_pending_office.id = release_pending_route.to_office_id
+                WHERE release_pending_route.document_id = d.id AND release_pending_route.action = \'acted\' AND release_pending_route.actor_role = \'ovp_central_records\'
+                    AND release_pending_route.dispatched_at IS NOT NULL AND release_pending_route.received_at IS NULL
+                    AND release_pending_route.id > ' . $this->releaseBatchStartIdSql() . ') AS release_pending_offices,
             review.id AS pad_review_id, review.submission_route_id AS pad_submission_route_id, review.pad_office_id,
             review.central_records_office_id AS pad_central_records_office_id, review_records.name AS pad_central_records_office_name,
             review.decision AS pad_decision, review.decision_notes AS pad_decision_notes, review.decided_at AS pad_decided_at,
@@ -210,9 +247,16 @@ class DocumentRouting
         $office = (int) ($this->actor['office_id'] ?? 0);
         if ($officeState === null) $officeState = $this->actorOfficeState();
         $active = $office && $officeState && (bool) $officeState['is_active'] && !is_presidential_office($officeState);
+        $ownerRole = in_array($this->actor['active_role'] ?? '', array('sksu_officials', 'ovp_pad'), true)
+            && in_array($this->actor['active_role'], account_roles($this->actor), true);
+        $document['is_owner_release'] = !empty($document['release_route_id']) && $document['last_movement_action'] === 'acted'
+            && (!$ownerRole || (int) $document['release_owner_office_id'] === $office);
+        $document['owner_delivery_received'] = $document['is_owner_release'] && !empty($document['release_delivered_at']);
         $held = $active && $office === (int) $document['current_office_id'] && !$document['pending_office_id']
             && in_array($document['status'], array('created', 'received'), true);
-        $incoming = $active && $office === (int) $document['pending_office_id'] && $document['status'] === 'in_transit';
+        $incoming = $active && $document['status'] === 'in_transit'
+            && ($office === (int) $document['pending_office_id']
+                || ($ownerRole && $document['is_owner_release'] && !$document['owner_delivery_received']));
         if (!$document['last_sender_role']) $document['last_sender_role'] = $this->officeModuleRole($document['last_from_office_id']);
         $document['is_my_document'] = $document['origin_type'] === 'office' && !$document['last_movement_id']
             && (int) $document['source_office_id'] === (int) $document['current_office_id']
@@ -225,8 +269,6 @@ class DocumentRouting
             && $office === (int) $document['last_to_office_id']
             && ($padResult || $this->officeModuleRole($office) === 'ovp_central_records'
                 || $office === (int) $document['pad_central_records_office_id']);
-        $document['is_owner_release'] = !empty($document['release_route_id'])
-            && (int) $document['last_movement_id'] === (int) $document['release_route_id'];
         $document['is_issue_return'] = $document['last_movement_action'] === 'returned'
             && (int) $document['last_movement_id'] !== (int) $document['pad_result_route_id'];
         $correctionHeld = $active && $document['is_owner_release'] && $document['status'] === 'delivered'
@@ -256,8 +298,6 @@ class DocumentRouting
             && in_array('ovp_pad', account_roles($this->actor), true);
         if ($reviewHeld) foreach (array('route', 'return', 'act', 'complete', 'deliver') as $action) $document['permissions'][$action] = false;
         $document['permissions']['edit_particulars'] = $active && $this->management->isCentralRecords() && $this->management->ready();
-        $ownerRole = in_array($this->actor['active_role'] ?? '', array('sksu_officials', 'ovp_pad'), true)
-            && in_array($this->actor['active_role'], account_roles($this->actor), true);
         $document['permissions']['edit_details'] = $active && $ownerRole && $document['origin_type'] === 'office'
             && $office === (int) $document['source_office_id'] && $this->management->ready()
             && ($document['is_my_document'] || $correctionHeld || ($held && $document['is_issue_return'])) && !$reviewHeld;
@@ -301,6 +341,13 @@ class DocumentRouting
                 LEFT JOIN users actor ON actor.id = pr.decided_by_user_id WHERE pr.document_id = ? ORDER BY pr.id');
             $reviews->execute(array($document['id']));
             $document['pad_reviews'] = $reviews->fetchAll();
+            $releaseRecipients = $this->db->prepare('SELECT release_route.id AS route_id, release_route.to_office_id AS office_id,
+                destination.name AS office_name, destination.campus AS office_campus, release_route.dispatched_at, release_route.received_at
+                FROM document_routes release_route LEFT JOIN offices destination ON destination.id = release_route.to_office_id
+                WHERE release_route.document_id = ? AND release_route.action = \'acted\' AND release_route.actor_role = \'ovp_central_records\'
+                    AND release_route.dispatched_at IS NOT NULL AND release_route.id > ? ORDER BY release_route.id');
+            $releaseRecipients->execute(array($document['id'], (int) $document['release_batch_start_id']));
+            $document['release_recipients'] = $releaseRecipients->fetchAll();
             $people = $this->db->prepare('SELECT personnel_id AS id, name_snapshot AS name FROM document_people WHERE document_id = ? ORDER BY name_snapshot, personnel_id');
             $people->execute(array($document['id']));
             $document['personnel'] = $people->fetchAll();
@@ -433,7 +480,7 @@ class DocumentRouting
                 }
                 return '(' . $received . ") OR (" . $holder . " AND d.pending_office_id IS NULL AND d.status = 'delivered'
                     AND " . $this->latestReviewMatches("review.decision = 'returned_for_correction'", $joined) . '
-                    AND ' . $this->latestDispatchMatches("movement.action = 'acted' AND movement.actor_role = 'ovp_central_records' AND movement.to_office_id = " . (int) $office, $joined) . ')';
+                    AND ' . $this->ownerReleaseCondition($office, 'release_route.received_at IS NOT NULL') . ')';
             case 'for_approval':
                 $latestMovement = $joined ? 'movement.id' : $this->latestDispatchId();
                 $noReviews = $joined ? 'review.id IS NULL' : 'NOT EXISTS (SELECT 1 FROM document_pad_reviews pr WHERE pr.document_id = d.id)';
@@ -447,7 +494,8 @@ class DocumentRouting
                     AND ' . $this->padResultCondition($office, $joined);
             case 'for_action':
                 return $holder . " AND d.pending_office_id IS NULL AND d.status = 'received' AND " . $this->padResultCondition($office, $joined);
-            case 'incoming': return $recipient . " AND d.status = 'in_transit'";
+            case 'incoming': return "d.status = 'in_transit' AND (" . $recipient . ' OR '
+                . $this->ownerReleaseCondition($office, 'release_route.received_at IS NULL') . ')';
             case 'my_documents': return $holder . " AND d.pending_office_id IS NULL AND d.status IN ('created', 'received')
                 AND d.origin_type = 'office' AND d.source_office_id = d.current_office_id
                 AND " . ($joined ? 'movement.id IS NULL' : 'NOT EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.dispatched_at IS NOT NULL)');
@@ -456,12 +504,18 @@ class DocumentRouting
                     OR " . ($joined ? 'movement.id IS NOT NULL' : 'EXISTS (SELECT 1 FROM document_routes sent WHERE sent.document_id = d.id AND sent.dispatched_at IS NOT NULL)') . ')
                 AND NOT (' . $this->queueCondition('for_action', $office, $parameters, $joined) . ')';
             case 'outgoing':
-                if ($office) $parameters[] = $office;
                 // Only the latest, still-unreceived handoff belongs to its sender.
                 // Earlier senders retain timeline access, even when the document moves again.
-                return "d.status = 'in_transit' AND d.pending_office_id IS NOT NULL
-                    AND " . $this->latestDispatchMatches('movement.to_office_id = d.pending_office_id AND movement.received_at IS NULL'
-                        . ($office ? ' AND movement.from_office_id = ?' : ''), $joined);
+                $ordinaryOutgoing = "d.pending_office_id IS NOT NULL AND "
+                    . $this->latestDispatchMatches('movement.to_office_id = d.pending_office_id AND movement.received_at IS NULL'
+                        . ($office ? ' AND movement.from_office_id = ' . (int) $office : ''), $joined);
+                $releaseOffice = $office ? ' AND release_route.from_office_id = ' . (int) $office : '';
+                $ownerOutgoing = 'd.pending_office_id IS NULL AND EXISTS (SELECT 1 FROM document_routes release_route
+                    WHERE release_route.document_id = d.id AND release_route.action = \'acted\'
+                        AND release_route.actor_role = \'ovp_central_records\' AND release_route.dispatched_at IS NOT NULL
+                        AND release_route.received_at IS NULL AND release_route.id > ' . $this->releaseBatchStartIdSql()
+                        . $releaseOffice . ')';
+                return "d.status = 'in_transit' AND (" . $ordinaryOutgoing . ' OR ' . $ownerOutgoing . ')';
             case 'returned': return "d.movement_type = 'return' AND d.status IN ('in_transit', 'received', 'acted') AND ((d.pending_office_id IS NOT NULL AND " . $recipient . ') OR (d.pending_office_id IS NULL AND ' . $holder . "))
                 AND " . $this->latestDispatchMatches("movement.action = 'returned'
                     AND NOT EXISTS (SELECT 1 FROM document_pad_reviews decision_return WHERE decision_return.result_route_id = movement.id)", $joined);
@@ -469,7 +523,8 @@ class DocumentRouting
                 SELECT 1 FROM document_routes ar WHERE ar.document_id = d.id AND ar.action = 'acted'
                     AND ar.dispatched_at IS NOT NULL AND ar.actor_role = 'ovp_central_records'"
                     . ($office ? ' AND ar.from_office_id = ' . (int) $office : '') . ')';
-            case 'delivered': return "d.status IN ('completed', 'delivered')";
+            case 'delivered': return "(d.status IN ('completed', 'delivered') OR "
+                . ($office ? $this->ownerReleaseCondition($office, 'release_route.received_at IS NOT NULL') : '0 = 1') . ')';
             default: return '1 = 1';
         }
     }
@@ -953,7 +1008,10 @@ class DocumentRouting
     {
         $this->assertWritable();
         if (!in_array($action, array('route', 'receive', 'return', 'act', 'complete', 'deliver', 'decide'), true)) $this->fail('Unknown document action.');
-        $notes = $this->text($input, 'notes', 10000, in_array($action, array('return', 'act', 'deliver'), true));
+        $padOwnerDispatch = $action === 'act'
+            && (array_key_exists('owner_office_ids', $input) || array_key_exists('owner_office_id', $input));
+        $notes = $padOwnerDispatch ? '' : $this->text($input, 'notes', 10000,
+            in_array($action, array('return', 'deliver', 'act'), true));
         $decision = $action === 'decide' ? $this->text($input, 'decision', 32, true) : null;
         if ($decision !== null && !in_array($decision, array('approved', 'disapproved', 'returned_for_correction'), true)) $this->fail('Select Approved, Disapproved, or Returned for correction.');
         if ($decision !== null && $decision !== 'approved' && $notes === '') $this->fail('A reason or correction instructions are required for this decision.');
@@ -967,14 +1025,25 @@ class DocumentRouting
             if ($action === 'act') {
                 if ($document['act_blockers']) $this->fail(implode(' ', $document['act_blockers']));
                 if (!is_file(safe_upload_directory() . DIRECTORY_SEPARATOR . basename($document['stored_file_name']))) $this->fail('The attached document file is missing. Open View and upload it before marking the document Acted.');
-                $owner = filter_var($input['owner_office_id'] ?? null, FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
-                if (!$owner || $owner === $office) $this->fail('Select the owner office to receive this document.');
-                $destination = $this->receivingOffice($owner);
-                $update = $this->db->prepare("UPDATE documents SET current_office_id = ?, recipient_office_id = ?, pending_office_id = ?,
+                $requestedOwners = $input['owner_office_ids'] ?? (isset($input['owner_office_id']) ? array($input['owner_office_id']) : null);
+                if (!is_array($requestedOwners) || !$requestedOwners || count($requestedOwners) > 100) $this->fail('Select one or more owner offices.');
+                $ownerIds = array(); $destinations = array();
+                foreach ($requestedOwners as $requestedOwner) {
+                    $owner = filter_var($requestedOwner, FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+                    if (!$owner || $owner === $office) $this->fail('Select active owner offices other than the acting Records office.');
+                    if (isset($ownerIds[$owner])) continue;
+                    $ownerIds[$owner] = $owner;
+                    $destinations[] = $this->receivingOffice($owner);
+                }
+                $ownerIds = array_values($ownerIds);
+                $padFinalNote = trim((string) $document['pad_decision_notes']);
+                $update = $this->db->prepare("UPDATE documents SET current_office_id = ?, recipient_office_id = ?, pending_office_id = NULL,
                     movement_type = 'forward', status = 'in_transit', updated_at = " . $this->timestampSql() . ' WHERE id = ?');
-                $update->execute(array($office, $owner, $owner, $document['id']));
-                $this->event($document['id'], $office, $owner, 'acted', $notes, true);
-                return array('reference_no' => $reference, 'message' => 'Acted and sent to ' . $destination['name'] . '. Delivery is confirmed when the owner office receives the hard copy.');
+                $update->execute(array($office, count($ownerIds) === 1 ? $ownerIds[0] : null, $document['id']));
+                foreach ($ownerIds as $owner) $this->event($document['id'], $office, $owner, 'acted', $padFinalNote, true);
+                $destinationNames = array_column($destinations, 'name');
+                return array('reference_no' => $reference,
+                    'message' => 'Acted and sent to ' . implode(', ', $destinationNames) . '. Each owner office confirms its own hard-copy receipt.');
             }
             $context = $this->reviewContext($document);
             if ($action === 'decide') {
@@ -1010,14 +1079,35 @@ class DocumentRouting
                 }
             } elseif ($action === 'receive') {
                 if ($context && !$document['pad_review_id'] && $office === $context['pad']) $this->createReview($document['id'], $context);
-                $this->confirmReceipt($document, $office, $notes);
                 if ($document['is_owner_release'] && $office === (int) $document['release_owner_office_id']) {
-                    $update = $this->db->prepare("UPDATE documents SET status = 'delivered' WHERE id = ?");
-                    $update->execute(array($document['id']));
-                    $this->event($document['id'], $office, $office, 'delivered', 'Owner office confirmed hard-copy receipt.' . ($notes ? ' ' . $notes : ''));
-                    return array('reference_no' => $reference, 'delivery_confirmed' => true,
-                        'message' => 'Owner hard-copy receipt confirmed. Delivery is recorded; the Records action remains in Acted.');
+                    $close = $this->db->prepare('UPDATE document_routes SET received_at = ' . $this->timestampSql() . ' WHERE id = ? AND received_at IS NULL');
+                    $close->execute(array($document['release_route_id']));
+                    if ($close->rowCount() !== 1) $this->fail('This owner office has already confirmed receipt. Refresh the document.', 409);
+                    $recordsOffice = (int) ($document['release_records_office_id'] ?: $document['current_office_id']);
+                    $this->event($document['id'], $recordsOffice, $office, 'received', $notes, false, true);
+                    $pending = $this->db->prepare('SELECT COUNT(*) FROM document_routes WHERE document_id = ? AND action = \'acted\'
+                        AND actor_role = \'ovp_central_records\' AND dispatched_at IS NOT NULL AND received_at IS NULL AND id > ?');
+                    $pending->execute(array($document['id'], (int) $document['release_batch_start_id']));
+                    $pendingCount = (int) $pending->fetchColumn();
+                    if ($pendingCount > 0) {
+                        $update = $this->db->prepare("UPDATE documents SET current_office_id = ?, pending_office_id = NULL, status = 'in_transit', updated_at = " . $this->timestampSql() . ' WHERE id = ?');
+                        $update->execute(array($recordsOffice, $document['id']));
+                        return array('reference_no' => $reference, 'delivery_confirmed' => true, 'all_recipients_delivered' => false,
+                            'message' => 'Hard-copy receipt confirmed for this office. Awaiting receipt at ' . $pendingCount . ' other owner office(s).');
+                    }
+                    $finalOffice = (int) ($document['source_office_id'] ?: $office);
+                    $sourceDispatch = $this->db->prepare('SELECT id FROM document_routes WHERE document_id = ? AND action = \'acted\'
+                        AND actor_role = \'ovp_central_records\' AND dispatched_at IS NOT NULL AND received_at IS NOT NULL
+                        AND to_office_id = ? AND id > ? LIMIT 1');
+                    $sourceDispatch->execute(array($document['id'], $finalOffice, (int) $document['release_batch_start_id']));
+                    if (!$sourceDispatch->fetch()) $finalOffice = $office;
+                    $update = $this->db->prepare("UPDATE documents SET current_office_id = ?, pending_office_id = NULL, status = 'delivered', updated_at = " . $this->timestampSql() . ' WHERE id = ?');
+                    $update->execute(array($finalOffice, $document['id']));
+                    $this->event($document['id'], $recordsOffice, $office, 'delivered', 'All selected owner offices confirmed hard-copy receipt.');
+                    return array('reference_no' => $reference, 'delivery_confirmed' => true, 'all_recipients_delivered' => true,
+                        'message' => 'All selected owner offices confirmed hard-copy receipt. Delivery is complete; the Records action remains in Acted.');
                 }
+                $this->confirmReceipt($document, $office, $notes);
             } else {
                 $status = array('act' => 'acted', 'complete' => 'completed', 'deliver' => 'delivered')[$action];
                 $update = $this->db->prepare('UPDATE documents SET status = ?, updated_at = ' . $this->timestampSql() . ' WHERE id = ?');

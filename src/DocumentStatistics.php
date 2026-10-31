@@ -98,6 +98,14 @@ class DocumentStatistics
                 AND r.action IN ('created', 'externally_received', 'received') AND r.to_office_id = d.current_office_id ORDER BY r.document_id DESC, r.id DESC LIMIT 1)
             LEFT JOIN document_pad_reviews review ON review.id = (SELECT MAX(p.id) FROM document_pad_reviews p WHERE p.document_id = d.id)
             WHERE " . $where);
+        $releaseQuery = $this->db->prepare("SELECT release_route.document_id, release_route.to_office_id, release_route.dispatched_at
+            FROM document_routes release_route INNER JOIN documents d ON d.id = release_route.document_id
+            WHERE " . $where . " AND d.status = 'in_transit' AND d.pending_office_id IS NULL
+                AND release_route.action = 'acted' AND release_route.actor_role = 'ovp_central_records'
+                AND release_route.dispatched_at IS NOT NULL AND release_route.received_at IS NULL ORDER BY release_route.id");
+        $releaseQuery->execute($parameters);
+        $pendingReleaseRoutes = array();
+        foreach ($releaseQuery->fetchAll() as $release) $pendingReleaseRoutes[(int) $release['document_id']][] = $release;
         $query->execute($parameters);
         while ($d = $query->fetch()) {
             $snapshot['total_documents']++;
@@ -111,6 +119,29 @@ class DocumentStatistics
             }
             // A correction result delivered to its owner is still work, not final closure.
             $correction = $d['status'] === 'delivered' && $d['movement_action'] === 'acted' && $d['latest_decision'] === 'returned_for_correction';
+            $ownerReleases = $pendingReleaseRoutes[(int) $d['id']] ?? array();
+            if ($ownerReleases) {
+                foreach ($ownerReleases as $release) {
+                    $target = (int) $release['to_office_id'];
+                    if (!$global && $target !== $office) continue;
+                    $began = $release['dispatched_at'] ?: $d['created_at'];
+                    $beganDate = (new DateTimeImmutable($began, $utc))->setTimezone($manila)->setTime(0, 0);
+                    $days = max(0, (int) $beganDate->diff($localNow->setTime(0, 0))->format('%r%a'));
+                    $snapshot['awaiting_receipt']++;
+                    $snapshot['oldest_days'] = max($snapshot['oldest_days'], $days);
+                    $buckets[$days <= 3 ? '0â€“3 days' : ($days <= 7 ? '4â€“7 days' : ($days <= 15 ? '8â€“15 days' : '16+ days'))]++;
+                    if (isset($officeRows[$target])) {
+                        $officeRows[$target]['awaiting_receipt']++;
+                        $officeRows[$target]['oldest_days'] = max($officeRows[$target]['oldest_days'], $days);
+                    }
+                    $oldest[] = array('reference_no' => $d['reference_no'], 'subject' => $d['subject'], 'document_type' => $d['document_type'],
+                        'queue' => 'Awaiting receipt', 'since' => $began, 'days' => $days,
+                        'office_id' => $target, 'office_name' => $officeRows[$target]['name'] ?? null, 'office_campus' => $officeRows[$target]['campus'] ?? null);
+                    usort($oldest, function ($a, $b) { return $b['days'] <=> $a['days'] ?: strcmp($a['since'], $b['since']) ?: strcmp($a['reference_no'], $b['reference_no']); });
+                    if (count($oldest) > 10) array_pop($oldest);
+                }
+                continue;
+            }
             $incoming = $d['status'] === 'in_transit' && !empty($d['pending_office_id']);
             $held = !$d['pending_office_id'] && (in_array($d['status'], array('created', 'received'), true) || $correction);
             $target = (int) ($incoming ? $d['pending_office_id'] : $d['current_office_id']);
