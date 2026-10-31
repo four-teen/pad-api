@@ -76,7 +76,14 @@ try {
     $db = database();
 install_pad_reviews($db);
     install_document_registration($db);
+    $db->exec('ALTER TABLE document_personnel DROP COLUMN email, DROP COLUMN position, DROP COLUMN campus');
+    install_personnel_details($db);
+    install_personnel_details($db);
+    routing_check(!array_diff(array('email', 'position', 'campus'), array_column($db->query('SHOW COLUMNS FROM document_personnel')->fetchAll(), 'Field')),
+        'The personnel details upgrade supports the old name-only catalog and is repeatable.');
     install_document_sources($db);
+    install_records_management($db);
+    install_records_management($db);
     install_optional_document_files($db);
     install_optional_document_files($db);
     $fileColumns = array_column($db->query('SHOW COLUMNS FROM documents')->fetchAll(), 'Null', 'Field');
@@ -89,7 +96,8 @@ install_pad_reviews($db);
     routing_check((int) $db->query('SELECT COUNT(*) FROM document_sources')->fetchColumn() === 3,
         'Source imports keep legacy identities without duplicating rows when rerun.');
     $sampleTypes = array(array('docid' => 1, 'doctype_desc' => 'Memorandum'), array('docid' => 7, 'doctype_desc' => 'TRAVEL ORDER'));
-    $samplePeople = array(array('acc_id' => 101, 'acc_name' => 'Sample Traveler'), array('acc_id' => 102, 'acc_name' => 'Second Traveler'));
+    $samplePeople = array(array('acc_id' => 101, 'acc_name' => 'Sample Traveler', 'acc_email' => 'traveler@example.test', 'acc_position' => 'Faculty', 'campus' => 'Isulan'),
+        array('acc_id' => 102, 'acc_name' => 'Second Traveler'));
     import_document_catalog($db, $sampleTypes, $samplePeople);
     import_document_catalog($db, $sampleTypes, $samplePeople);
     routing_check((int) $db->query('SELECT COUNT(*) FROM document_types')->fetchColumn() === 2
@@ -598,7 +606,8 @@ install_pad_reviews($db);
     routing_check($codes->settings()['selected']['next_number'] === null, 'An exhausted counter has no next-number preview.');
     routing_rejects(function () use ($one) { save_fixture($one, fixture_registration('file-code-exhausted')); }, 409, 'Exhausted annual counters reject registration without wrapping around.');
 
-    echo 'Passed ' . $checks . ' office routing checks, including 12 concurrent saves, using isolated sample data.' . PHP_EOL;
+    require __DIR__ . '/records-management-cases.php';
+    echo 'Passed ' . $checks . ' office routing checks, including records management and 12 concurrent saves, using isolated sample data.' . PHP_EOL;
 } finally {
     if (is_resource($httpServer)) { proc_terminate($httpServer); proc_close($httpServer); }
     if (is_dir($uploadDirectory)) { foreach (glob($uploadDirectory . '/*') as $file) if (is_file($file)) unlink($file); rmdir($uploadDirectory); }

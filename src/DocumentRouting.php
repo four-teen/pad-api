@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/DocumentFileCodes.php';
+require_once __DIR__ . '/RecordsManagement.php';
 
 class DocumentRouting
 {
@@ -8,6 +9,7 @@ class DocumentRouting
     private $actor;
     private $officeRoles = array();
     private $recordedAt = null;
+    private $management;
 
     private function timestampSql()
     {
@@ -19,6 +21,7 @@ class DocumentRouting
     {
         $this->db = $db;
         $this->actor = $actor;
+        $this->management = new RecordsManagement($db, $actor);
     }
 
     private function fail($message, $status = 422)
@@ -252,6 +255,12 @@ class DocumentRouting
         $document['permissions']['decide'] = $reviewHeld && ($this->actor['active_role'] ?? '') === 'ovp_pad'
             && in_array('ovp_pad', account_roles($this->actor), true);
         if ($reviewHeld) foreach (array('route', 'return', 'act', 'complete', 'deliver') as $action) $document['permissions'][$action] = false;
+        $document['permissions']['edit_particulars'] = $active && $this->management->isCentralRecords() && $this->management->ready();
+        $ownerRole = in_array($this->actor['active_role'] ?? '', array('sksu_officials', 'ovp_pad'), true)
+            && in_array($this->actor['active_role'], account_roles($this->actor), true);
+        $document['permissions']['edit_details'] = $active && $ownerRole && $document['origin_type'] === 'office'
+            && $office === (int) $document['source_office_id'] && $this->management->ready()
+            && ($document['is_my_document'] || $correctionHeld || ($held && $document['is_issue_return'])) && !$reviewHeld;
         $document['awaiting_pad_decision'] = (bool) ($context && (($document['pending_office_id'] && (int) $document['pending_office_id'] === $context['pad'])
             || (!$document['pending_office_id'] && (int) $document['current_office_id'] === $context['pad'] && in_array($document['status'], array('created', 'received', 'acted'), true))));
         $document['pad_return_office_id'] = $context ? $context['records'] : null;
@@ -298,6 +307,8 @@ class DocumentRouting
             $travel = $this->db->prepare('SELECT destination, purpose, order_date, departure_date, return_date, travel_type, vehicle_requirement, remarks FROM document_travel_details WHERE document_id = ?');
             $travel->execute(array($document['id']));
             $document['travel_details'] = $travel->fetch() ?: null;
+            $document['edit_version'] = RecordsManagement::version($this->editableSnapshot($document));
+            $document['changes'] = $this->management->history('document', $document['id']);
         }
         return $document;
     }
@@ -311,13 +322,13 @@ class DocumentRouting
         );
     }
 
-    private function registrationDetails(array $input)
+    private function registrationDetails(array $input, $existing = null)
     {
         if (isset($input['document_type_id']) && $input['document_type_id'] !== '') {
             $id = filter_var($input['document_type_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
             if ($id === false) $this->fail('Select a valid type of document.');
-            $query = $this->db->prepare('SELECT id, name, details_kind FROM document_types WHERE id = ? AND is_active = 1');
-            $query->execute(array($id));
+            $query = $this->db->prepare('SELECT id, name, details_kind FROM document_types WHERE id = ? AND (is_active = 1 OR id = ?)');
+            $query->execute(array($id, $existing['document_type_id'] ?? 0));
         } else {
             // Accept a known catalog name for older clients, never arbitrary free text.
             $query = $this->db->prepare('SELECT id, name, details_kind FROM document_types WHERE name = ? AND is_active = 1');
@@ -325,6 +336,7 @@ class DocumentRouting
         }
         $type = $query->fetch();
         if (!$type) $this->fail('Select a type of document from the list.');
+        if ($existing && (int) $existing['document_type_id'] === (int) $type['id']) $type['name'] = $existing['document_type'];
         $ids = $input['personnel_ids'] ?? array();
         if (!is_array($ids) || count($ids) > 100) $this->fail('Select up to 100 faculty / personnel from the list.');
         $unique = array();
@@ -335,10 +347,14 @@ class DocumentRouting
         }
         $people = array();
         if ($unique) {
-            $query = $this->db->prepare('SELECT id, name FROM document_personnel WHERE is_active = 1 AND id IN (' . implode(',', array_fill(0, count($unique), '?')) . ') ORDER BY id');
-            $query->execute(array_values($unique));
+            $existingPeople = array_column($existing['personnel'] ?? array(), 'name', 'id');
+            $oldIds = array_keys($existingPeople);
+            $query = $this->db->prepare('SELECT id, name FROM document_personnel WHERE (is_active = 1 OR id IN (' . implode(',', array_fill(0, max(1, count($oldIds)), '?')) . ')) AND id IN (' . implode(',', array_fill(0, count($unique), '?')) . ') ORDER BY id');
+            $query->execute(array_merge($oldIds ?: array(0), array_values($unique)));
             $people = $query->fetchAll();
             if (count($people) !== count($unique)) $this->fail('One or more selected personnel are unavailable. Select names from the current list.');
+            foreach ($people as &$person) if (isset($existingPeople[$person['id']])) $person['name'] = $existingPeople[$person['id']];
+            unset($person);
         }
         $travel = null;
         if ($type['details_kind'] === 'travel_order') {
@@ -808,6 +824,78 @@ class DocumentRouting
             VALUES (?, ?, ?, ?, ?, ' . ($dispatch ? $timestamp : 'NULL') . ', ' . ($receipt ? $timestamp : 'NULL') . ', ?, ?, ' . $timestamp . ')');
         $query->execute(array($id, $from, $to, $action, $notes ?: null, $this->actor['id'], $this->actor['active_role'] ?? null));
         return (int) $this->db->lastInsertId();
+    }
+
+    private function editableSnapshot(array $document)
+    {
+        return array('subject' => $document['subject'], 'description' => $document['description'],
+            'document_type_id' => $document['document_type_id'], 'document_type' => $document['document_type'],
+            'source_division_id' => $document['source_division_id'], 'external_sender' => $document['external_sender'],
+            'personnel' => $document['personnel'], 'travel_details' => $document['travel_details'],
+            'status' => $document['status'], 'current_office_id' => $document['current_office_id'],
+            'pending_office_id' => $document['pending_office_id'], 'updated_at' => $document['updated_at']);
+    }
+
+    public function editDocument($reference, $kind, array $input)
+    {
+        $this->assertWritable();
+        $office = $this->actingOffice();
+        if ($kind === 'particulars') $this->management->assertAccess();
+        elseif ($kind !== 'details') $this->fail('Edit operation not found.', 404);
+        $visible = $this->record($reference);
+        $permission = $kind === 'particulars' ? 'edit_particulars' : 'edit_details';
+        if (!$visible['permissions'][$permission]) $this->fail($kind === 'particulars'
+            ? 'Only OVP Central Records can correct document particulars.'
+            : 'Only the originating office can edit details before sending or while a document is returned for correction.', 403);
+        $this->management->assertReady();
+        $allowed = $kind === 'particulars' ? array('description') : array('document_type_id', 'source_division_id', 'personnel_ids',
+            'travel_destination', 'travel_purpose', 'travel_order_date', 'travel_departure_date', 'travel_return_date', 'travel_type', 'travel_vehicle_requirement', 'travel_remarks');
+        if (array_diff(array_keys($input), array_merge($allowed, array('version', 'reason')))) $this->fail('This operation contains fields you are not allowed to change.');
+        $reason = RecordsManagement::reason($input);
+        return $this->transaction(function () use ($reference, $visible, $input, $kind, $permission, $reason) {
+            $lock = $this->db->prepare('SELECT id FROM documents WHERE id = ? FOR UPDATE');
+            $lock->execute(array($visible['id']));
+            $document = $this->record($reference, true);
+            if (!$document['permissions'][$permission]) $this->fail('This document is no longer editable. Reopen it before making changes.', 409);
+            RecordsManagement::checkVersion($input['version'] ?? null, $document['edit_version']);
+            $before = $this->editableSnapshot($document);
+            if ($kind === 'particulars') {
+                $description = $this->text($input, 'description', 10000, true);
+                preg_match('/^(.{1,255})/us', $description, $heading);
+                $this->db->prepare('UPDATE documents SET description = ?, subject = ?, updated_at = ' . $this->timestampSql() . ' WHERE id = ?')
+                    ->execute(array($description, $heading[1], $document['id']));
+            } else {
+                // Start with existing values, so a partial edit cannot silently remove details.
+                $values = array('document_type_id' => $document['document_type_id'], 'personnel_ids' => array_column($document['personnel'], 'id'));
+                foreach ($document['travel_details'] ?: array() as $key => $value) $values[$key === 'travel_type' ? 'travel_type' : 'travel_' . $key] = $value ?? '';
+                $values = array_merge($values, $input);
+                $details = $this->registrationDetails($values, $document);
+                $sourceId = $document['source_division_id']; $sourceName = $document['external_sender'];
+                if (array_key_exists('source_division_id', $input) && (string) $input['source_division_id'] !== (string) $sourceId) {
+                    $sourceId = filter_var($input['source_division_id'], FILTER_VALIDATE_INT, array('options' => array('min_range' => 1)));
+                    if ($sourceId === false) $this->fail('Select a valid document source.');
+                    $source = $this->db->prepare('SELECT name FROM document_sources WHERE id = ? AND is_active = 1');
+                    $source->execute(array($sourceId));
+                    $sourceName = $source->fetchColumn();
+                    if ($sourceName === false) $this->fail('Select an active document source.');
+                }
+                $this->db->prepare('UPDATE documents SET document_type_id = ?, document_type = ?, source_division_id = ?, external_sender = ?, updated_at = ' . $this->timestampSql() . ' WHERE id = ?')
+                    ->execute(array($details['type_id'], $details['type'], $sourceId, $sourceName, $document['id']));
+                $this->db->prepare('DELETE FROM document_people WHERE document_id = ?')->execute(array($document['id']));
+                $save = $this->db->prepare('INSERT INTO document_people (document_id, personnel_id, name_snapshot) VALUES (?, ?, ?)');
+                foreach ($details['personnel'] as $person) $save->execute(array($document['id'], $person['id'], $person['name']));
+                $this->db->prepare('DELETE FROM document_travel_details WHERE document_id = ?')->execute(array($document['id']));
+                if ($details['travel']) {
+                    $travel = $details['travel'];
+                    $this->db->prepare('INSERT INTO document_travel_details (document_id, destination, purpose, order_date, departure_date, return_date, travel_type, vehicle_requirement, remarks)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute(array($document['id'], $travel['destination'], $travel['purpose'], $travel['order_date'], $travel['departure_date'],
+                        $travel['return_date'], $travel['travel_type'], $travel['vehicle_requirement'], $travel['remarks'] ?: null));
+                }
+            }
+            $after = $this->editableSnapshot($this->record($reference, true));
+            $this->management->audit('document', $document['id'], $reference, $kind === 'particulars' ? 'particulars_corrected' : 'details_updated', $before, $after, $reason);
+            return array('reference_no' => $reference, 'message' => $kind === 'particulars' ? 'Document particulars corrected.' : 'Document details updated.');
+        });
     }
 
     public function uploadFile($reference, array $file)

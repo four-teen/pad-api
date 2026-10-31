@@ -54,6 +54,8 @@ For an existing PAD database, back up its schema/data and uploaded files first. 
 | Later document attachments | `php scripts/setup-document-files.php` |
 | PAD review decisions | `php scripts/setup-pad-reviews.php` |
 | Database-management audit | `php scripts/setup-database-maintenance.php` |
+| Central Records particulars, owner editing, and catalogs | `php scripts/setup-records-management.php` |
+| Faculty/personnel email, designation, and campus | `php scripts/setup-personnel-details.php` (optionally pass the original PAD config path to fill missing recorded details) |
 
 Run office-routing setup before dependent feature setup when upgrading an older installation. Review the administration setup separately because it also imports the reviewed official directory. No setup script needs to run merely because the API hostname changes.
 

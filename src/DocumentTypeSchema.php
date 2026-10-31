@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/PersonnelDetailsSchema.php';
+
 // CLI-only migrations; API requests never change the schema or read sam.pad.
 function install_document_registration(PDO $db)
 {
@@ -20,6 +22,7 @@ function install_document_registration(PDO $db)
         UNIQUE KEY document_personnel_legacy_unique (legacy_profile_id),
         KEY document_personnel_name_index (name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+    install_personnel_details($db);
     $columns = array_column($db->query('SHOW COLUMNS FROM documents')->fetchAll(), 'Field');
     if (!in_array('document_type_id', $columns, true)) {
         $db->exec('ALTER TABLE documents ADD COLUMN document_type_id INT UNSIGNED DEFAULT NULL,
@@ -60,8 +63,14 @@ function import_document_catalog(PDO $db, array $types, array $personnel)
             }
             $saveType->execute(array($type['docid'], $name, strtoupper(preg_replace('/\s+/', ' ', $name)) === 'TRAVEL ORDER' ? 'travel_order' : 'personnel'));
         }
-        $savePerson = $db->prepare('INSERT INTO document_personnel (legacy_profile_id, name) VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE name = VALUES(name)');
+        $savePerson = $db->prepare('INSERT INTO document_personnel (legacy_profile_id, name, email, position, campus) VALUES (?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), email = COALESCE(email, VALUES(email)),
+                position = COALESCE(position, VALUES(position)), campus = COALESCE(campus, VALUES(campus))');
+        $fillPerson = $db->prepare('UPDATE document_personnel SET email = COALESCE(email, ?), position = COALESCE(position, ?), campus = COALESCE(campus, ?)
+            WHERE legacy_profile_id = ?');
+        $managed = $db->query("SHOW TABLES LIKE 'record_changes'")->fetchColumn()
+            ? array_fill_keys($db->query("SELECT DISTINCT p.legacy_profile_id FROM document_personnel p JOIN record_changes c
+                ON c.entity_type = 'personnel' AND c.entity_id = p.id WHERE p.legacy_profile_id IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN), true) : array();
         $importedPeople = 0;
         foreach ($personnel as $person) {
             $name = trim($person['acc_name']);
@@ -69,7 +78,9 @@ function import_document_catalog(PDO $db, array $types, array $personnel)
             if (preg_match_all('/./us', $name, $characters) === false || count($characters[0]) > 160) {
                 throw new RuntimeException('A source personnel name is invalid or too long.');
             }
-            $savePerson->execute(array($person['acc_id'], $name));
+            $details = personnel_legacy_details($person);
+            if (!isset($managed[$person['acc_id']])) $savePerson->execute(array($person['acc_id'], $name, $details['email'], $details['position'], $details['campus']));
+            else $fillPerson->execute(array($details['email'], $details['position'], $details['campus'], $person['acc_id']));
             $importedPeople++;
         }
         // Keep historical free-text names; link only those that match a catalog entry.

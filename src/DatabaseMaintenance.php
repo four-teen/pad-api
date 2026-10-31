@@ -73,6 +73,7 @@ final class DatabaseMaintenance
         if ($name === 'users' || $name === env_value('AUTH_ACCOUNT_TABLE', 'tblaccount')) return array('Login profiles and approved Google accounts are protected. Use User accounts to manage access.');
         if ($name === 'document_number_series') return array('Document-number counters are retained so cleared file codes cannot be reused.');
         if ($name === 'admin_maintenance_events') return array('The administrative operation log is protected.');
+        if ($name === 'record_changes') return array('Document corrections and catalog change history are protected.');
         if (!isset($this->catalog[$name])) return array('This table is outside the managed PAD data tables.');
         if ($this->tables[$name] !== 'InnoDB') return array('This table does not support transactional clearing.');
         if (in_array($name, array('document_routes', 'document_pad_reviews'), true) && isset($this->tables['documents']) && $this->count('documents') > 0) {
