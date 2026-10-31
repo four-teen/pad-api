@@ -43,6 +43,7 @@ try {
     $db = database();
     install_pad_reviews($db);
     install_pad_reviews($db);
+    install_records_management($db);
     review_check((int) $db->query('SELECT COUNT(*) FROM document_pad_reviews')->fetchColumn() === 0, 'Repeatable setup creates no historical reviews.');
     $db->exec("INSERT INTO offices (id, code, name, is_active, created_at, updated_at) VALUES
         (2, 'CENTRAL', 'Central Records', 1, NOW(), NOW()), (80, 'EXACT-PAD', 'Exact PAD Office', 1, NOW(), NOW()),
@@ -140,6 +141,7 @@ try {
             $records->action($ref, 'act', array('owner_office_id' => 9, 'hard_copy_received' => true, 'notes' => 'Released PAD correction instructions to owner.'));
             $office->action($ref, 'receive', array());
             review_check($office->record($ref)['status'] === 'delivered' && $office->record($ref)['permissions']['route'], 'A correction result confirms delivery while retaining owner resubmission.');
+            review_check($office->record($ref)['permissions']['edit_details'] && !$records->record($ref)['permissions']['edit_details'], 'PAD correction delivery restores detail editing to its originating office, while Records remains limited to particulars.');
             $office->action($ref, 'route', array('to_office_id' => 2));
             $records->action($ref, 'receive', array());
             $records->action($ref, 'route', array('to_office_id' => 80));
@@ -341,8 +343,10 @@ try {
             && $global['counts']['all'] === $totalRegistry && $global['desk_counts']['all'] === $totalRegistry,
             'Each OVP module defaults All Timeline to all offices with matching global badge and dashboard counts.');
         $globalRecord = $globalModule->record($unrelated, true);
-        review_check(count($globalRecord['history']) === 1 && !array_filter($globalRecord['permissions']),
-            'OVP can read an unrelated timeline without gaining office action permissions.');
+        $workflowPermissions = $globalRecord['permissions']; unset($workflowPermissions['edit_particulars']);
+        review_check(count($globalRecord['history']) === 1 && !array_filter($workflowPermissions)
+            && $globalRecord['permissions']['edit_particulars'] === ($globalModule === $records),
+            'OVP can read unrelated timelines without office workflow actions; only Central Records can correct particulars.');
         review_check($globalModule->workspace(array('queue' => 'incoming'))['counts']['all'] === $totalRegistry,
             'All Timeline badge stays global while an OVP module is viewing its own incoming queue.');
         $ownQueues = $globalModule->workspace(array('queue' => 'incoming'));

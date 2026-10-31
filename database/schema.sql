@@ -71,6 +71,9 @@ CREATE TABLE document_personnel (
   id INT UNSIGNED NOT NULL AUTO_INCREMENT,
   legacy_profile_id INT UNSIGNED DEFAULT NULL,
   name VARCHAR(160) NOT NULL,
+  email VARCHAR(191) DEFAULT NULL,
+  position VARCHAR(255) DEFAULT NULL,
+  campus VARCHAR(80) DEFAULT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (id),
   UNIQUE KEY document_personnel_legacy_unique (legacy_profile_id),
@@ -85,6 +88,24 @@ CREATE TABLE document_sources (
   PRIMARY KEY (id),
   UNIQUE KEY document_sources_legacy_unique (legacy_division_id),
   KEY document_sources_name_index (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Immutable correction evidence is retained independently of operational records.
+CREATE TABLE record_changes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  entity_type VARCHAR(20) NOT NULL,
+  entity_id INT UNSIGNED NOT NULL,
+  entity_reference VARCHAR(255) NOT NULL,
+  action VARCHAR(40) NOT NULL,
+  before_data MEDIUMTEXT NOT NULL,
+  after_data MEDIUMTEXT NOT NULL,
+  reason VARCHAR(2000) NOT NULL,
+  actor_user_id INT UNSIGNED NOT NULL,
+  actor_name VARCHAR(255) NOT NULL,
+  actor_role VARCHAR(40) NOT NULL,
+  actor_office_id INT UNSIGNED DEFAULT NULL,
+  created_at DATETIME NOT NULL,
+  KEY record_changes_entity_index (entity_type, entity_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE documents (

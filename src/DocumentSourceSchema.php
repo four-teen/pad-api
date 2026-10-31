@@ -22,6 +22,9 @@ function import_document_sources(PDO $db, array $divisions)
 {
     $db->beginTransaction();
     try {
+        $managed = $db->query("SHOW TABLES LIKE 'record_changes'")->fetchColumn()
+            ? array_fill_keys($db->query("SELECT DISTINCT s.legacy_division_id FROM document_sources s JOIN record_changes c
+                ON c.entity_type = 'sources' AND c.entity_id = s.id WHERE s.legacy_division_id IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN), true) : array();
         $save = $db->prepare('INSERT INTO document_sources (legacy_division_id, name) VALUES (?, ?)
             ON DUPLICATE KEY UPDATE name = VALUES(name)');
         $count = 0;
@@ -31,7 +34,7 @@ function import_document_sources(PDO $db, array $divisions)
             if (preg_match_all('/./us', $name, $characters) === false || count($characters[0]) > 255) {
                 throw new RuntimeException('A source division name is invalid or too long.');
             }
-            $save->execute(array($division['divisionid'], $name));
+            if (!isset($managed[$division['divisionid']])) $save->execute(array($division['divisionid'], $name));
             $count++;
         }
         $db->commit();

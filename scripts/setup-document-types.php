@@ -12,7 +12,7 @@ try { require $sourceConfig; } finally { ob_end_clean(); }
 if (!isset($conn) || !($conn instanceof mysqli)) throw new RuntimeException('The source configuration must provide the sam.pad connection.');
 mysqli_set_charset($conn, 'utf8mb4');
 $types = mysqli_fetch_all(mysqli_query($conn, 'SELECT docid, doctype_desc FROM tbltypeofdocuments ORDER BY doctype_desc'), MYSQLI_ASSOC);
-$personnel = mysqli_fetch_all(mysqli_query($conn, 'SELECT acc_id, acc_name FROM tblprofiles ORDER BY acc_name'), MYSQLI_ASSOC);
+$personnel = mysqli_fetch_all(mysqli_query($conn, 'SELECT acc_id, acc_name, acc_email, acc_position, campus FROM tblprofiles ORDER BY acc_name'), MYSQLI_ASSOC);
 if (!$types) throw new RuntimeException('The sam.pad document type list is empty.');
 
 $db = database();

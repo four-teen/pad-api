@@ -9,6 +9,18 @@ if (strpos($path, '/api/doc_router/') === 0) {
 }
 $routing = new DocumentRouting(database(), $user);
 
+if (preg_match('#^/api/routing/management/(personnel|sources)(?:/([0-9]+))?$#', $path, $matches)) {
+    $management = new RecordsManagement(database(), $user);
+    if ($method === 'GET' && empty($matches[2])) json_response($management->catalog($matches[1]));
+    if (($method === 'POST' && empty($matches[2])) || ($method === 'PATCH' && !empty($matches[2]))) {
+        json_response($management->saveCatalog($matches[1], request_json(), empty($matches[2]) ? null : (int) $matches[2]), $method === 'POST' ? 201 : 200);
+    }
+}
+
+if (preg_match('#^/api/documents/([A-Za-z0-9-]+)/(particulars|details)$#', $path, $matches) && $method === 'PATCH') {
+    json_response($routing->editDocument($matches[1], $matches[2], request_json()));
+}
+
 if ($method === 'GET' && $path === '/api/routing/statistics') {
     require_once __DIR__ . '/DocumentStatistics.php';
     header('Cache-Control: no-store');

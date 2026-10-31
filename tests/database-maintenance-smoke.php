@@ -62,6 +62,7 @@ try {
     $input = function ($review) { return array('token' => $review['token'], 'confirmation' => $review['confirmation'], 'acknowledged' => true, 'reason' => 'Isolated test reset'); };
     $inventory = $maintenance->inventory();
     $tables = array_column($inventory['tables'], null, 'name');
+    maintenance_check(!$tables['record_changes']['can_clear'] && $tables['record_changes']['group'] === 'system', 'Document correction and catalog change evidence is protected from database clearing.');
     maintenance_check($tables['offices']['group'] === 'preparation' && $tables['documents']['group'] === 'operations' && $tables['fixture_accounts']['group'] === 'system', 'Tables are grouped by preparation, document operations, and protected system usage.');
     maintenance_check($inventory['audit_ready'] && $tables['documents']['count'] === 1 && $tables['documents']['can_clear'], 'Inventory shows exact counts and the document clear operation.');
     foreach (array('users', 'fixture_accounts', 'document_number_series', 'admin_maintenance_events') as $protected) maintenance_check(!$tables[$protected]['can_clear'], $protected . ' is protected.');
