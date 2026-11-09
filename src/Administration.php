@@ -18,6 +18,20 @@ final class Administration
         $this->emailColumn = sql_identifier(env_value('AUTH_ACCOUNT_EMAIL_COLUMN', 'acc_email'), 'AUTH_ACCOUNT_EMAIL_COLUMN');
     }
 
+    public function documentTypeCounts()
+    {
+        // Count registry rows once, across all years and workflow statuses.
+        // Include unused configured types and names retained only in history.
+        $rows = $this->db->query('SELECT catalog.name, COALESCE(totals.documents, 0) AS documents
+            FROM (SELECT name FROM document_types UNION SELECT document_type AS name FROM documents) catalog
+            LEFT JOIN (SELECT document_type AS name, COUNT(*) AS documents FROM documents GROUP BY document_type) totals
+                ON totals.name = catalog.name
+            ORDER BY catalog.name')->fetchAll();
+        foreach ($rows as &$row) $row['documents'] = (int) $row['documents'];
+        unset($row);
+        return $rows;
+    }
+
     public function accounts()
     {
         // Legacy duplicates represent one login identity; retain every original row.

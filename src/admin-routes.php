@@ -38,6 +38,7 @@ if (strpos($path, '/api/admin/') === 0) {
             'active_users' => count(array_filter($accounts, function ($account) { return (int) $account['is_active'] === 1; })),
             'offices' => (int) database()->query('SELECT COUNT(*) FROM offices WHERE is_active = 1')->fetchColumn(),
             'documents' => (int) database()->query('SELECT COUNT(*) FROM documents')->fetchColumn(),
+            'document_types' => $admin->documentTypeCounts(),
             'legacy_role_offices' => module_office_ids()
         )));
     }
