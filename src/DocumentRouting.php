@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/DocumentFileCodes.php';
 require_once __DIR__ . '/RecordsManagement.php';
+require_once __DIR__ . '/TravelOrderOverview.php';
 
 class DocumentRouting
 {
@@ -619,10 +620,34 @@ class DocumentRouting
             $where = array($this->participation($scope, $parameters));
         }
         $where[] = $this->queueCondition($queue, $scope, $parameters);
+        $documentType = $this->text($input, 'document_type', 120);
+        if ($documentType !== '') {
+            $where[] = 'd.document_type = ?';
+            $parameters[] = $documentType;
+        }
+        $travel = null;
+        $travelSummary = null;
+        if (array_key_exists('travel_window', $input)) {
+            if (!TravelOrderOverview::isTravelOrder($documentType) || $queue !== 'all') {
+                $this->fail('Travel periods apply only to the Travel Order registry.');
+            }
+            $travel = new TravelOrderOverview($this->db);
+            $travelParameters = array();
+            $travelCondition = $travel->condition($input['travel_window'], $travelParameters);
+            $travelSummary = $travel->summary(implode(' AND ', $where), $parameters);
+            $travelSummary['window'] = $input['travel_window'];
+            if ($input['travel_window'] !== 'all') {
+                $where[] = 'EXISTS (SELECT 1 FROM document_travel_details t WHERE t.document_id = d.id AND ' . $travelCondition . ')';
+                $parameters = array_merge($parameters, $travelParameters);
+            }
+        }
         $search = $this->text($input, 'search', 255);
         if ($search !== '') {
-            $where[] = '(d.reference_no LIKE ? OR d.subject LIKE ? OR d.document_type LIKE ? OR d.external_sender LIKE ? OR source.name LIKE ? OR current.name LIKE ? OR pending.name LIKE ?)';
-            for ($i = 0; $i < 7; $i++) $parameters[] = '%' . $search . '%';
+            $searchSql = '(d.reference_no LIKE ? OR d.subject LIKE ? OR d.document_type LIKE ? OR d.external_sender LIKE ? OR source.name LIKE ? OR current.name LIKE ? OR pending.name LIKE ?';
+            if ($travel) $searchSql .= ' OR EXISTS (SELECT 1 FROM document_people employee WHERE employee.document_id = d.id AND employee.name_snapshot LIKE ?)
+                OR EXISTS (SELECT 1 FROM document_travel_details itinerary WHERE itinerary.document_id = d.id AND (itinerary.destination LIKE ? OR itinerary.purpose LIKE ?))';
+            $where[] = $searchSql . ')';
+            for ($i = 0; $i < ($travel ? 10 : 7); $i++) $parameters[] = '%' . $search . '%';
         }
         $status = $input['status'] ?? '';
         if ($status !== '') {
@@ -638,7 +663,7 @@ class DocumentRouting
         if ($search !== '') $filterFrom .= ' LEFT JOIN offices source ON source.id = d.source_office_id
             LEFT JOIN offices current ON current.id = d.current_office_id
             LEFT JOIN offices pending ON pending.id = d.pending_office_id';
-        if ($search === '' && $status === '' && (!in_array($queue, $localQueues, true) || !empty($this->actor['office_id']))) $total = $counts[$queue];
+        if ($search === '' && $status === '' && $documentType === '' && (!in_array($queue, $localQueues, true) || !empty($this->actor['office_id']))) $total = $counts[$queue];
         else {
             $count = $this->db->prepare('SELECT COUNT(*)' . $filterFrom . $sqlWhere);
             $count->execute($parameters);
@@ -662,6 +687,7 @@ class DocumentRouting
         }
         $officeState = $rows ? $this->actorOfficeState() : array();
         foreach ($rows as $document) $documents[] = $this->decorate($document, $officeState);
+        if ($travel) $documents = $travel->details($documents);
         $deskCounts = $counts;
         if ($scope !== (int) ($this->actor['office_id'] ?? 0)) {
             $deskSpecifications = array();
@@ -688,7 +714,7 @@ class DocumentRouting
             $globalCount = $this->workspaceCounts(array('all' => array('1 = 1', '1 = 1', array())), $countCache);
             $deskCounts['all'] = $globalCount['all'];
         }
-        return array('data' => $documents, 'counts' => $counts, 'desk_counts' => $deskCounts, 'office' => $office,
+        return array('data' => $documents, 'travel_summary' => $travelSummary, 'counts' => $counts, 'desk_counts' => $deskCounts, 'office' => $office,
             'can_monitor' => $this->canMonitor() || ($queue === 'all' && $this->canReadAllTimelines()),
             'can_read_all_timelines' => $this->canReadAllTimelines(),
             'can_register' => !is_presidential_view($this->actor) && (!empty($this->actor['office_id']) || is_administrator($this->actor)),

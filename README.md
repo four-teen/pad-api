@@ -133,3 +133,21 @@ In Google Cloud, choose a **Web application** client. Add `http://localhost`, `h
 With Apache and MySQL running locally, run `php tests/hosting-smoke.php`. It checks the compiled frontend, scripts, styles, icon font, blocked private files, CORS, bearer-token handling, document validation routes, and authenticated workspace reads. It signs a local PAD token for an existing approved profile and leaves the database and uploads unchanged; it does not complete a real Google login.
 
 Run `php tests/auth-smoke.php` after importing the schema. It uses generated signing keys and connection-local temporary tables, leaving existing accounts and application data unchanged. The database user must be allowed to create temporary tables. On XAMPP for Windows, set `$env:OPENSSL_CONF='C:/xampp/php/extras/ssl/openssl.cnf'` in PowerShell first if OpenSSL cannot generate the test key.
+
+
+### Administrator document-type counts
+
+`GET /api/admin/overview` includes `data.document_types`, a list of `{name, documents}` entries covering all configured and historical types. Counts include all registration years and workflow statuses; unused configured types remain visible with zero. This uses the existing tables and requires no migration. Verify the aggregation without opening the application database using `php tests/admin-document-types-test.php`.
+
+`GET /api/routing/workspace` also accepts an exact `document_type` name. It composes with `queue`, `office_id`, `search`, `status`, and pagination while preserving existing visibility rules. The matching pagination total is computed after the type filter, rather than using the unfiltered queue count. Run `php tests/admin-document-list-smoke.php` for generated-database checks covering totals, pagination, empty types, bound parameters, and office visibility.
+
+
+### Travel Order overview
+
+Request the exact Travel Order registry with GET /api/routing/workspace?queue=all&office_id=all&document_type=Travel%20Order&travel_window=ongoing. Existing role and office visibility applies to both totals and records. The supported travel_window values are ongoing, today, tomorrow, incoming, completed, and all (the complete registry for API compatibility). Invalid values return 422.
+
+All date boundaries use Asia/Manila. Ongoing requires departure before today and return today or later; today and tomorrow match only their departure date; incoming departures start after tomorrow; completed requires return before today. Invalid or missing ranges do not enter scheduled categories. These categories are mutually exclusive, and completion follows the scheduled return date rather than document-routing status.
+
+The response adds travel_summary with today/tomorrow, timezone, server time, selected window, and counts: ongoing, today, tomorrow, incoming, completed, unscheduled, and total. total retains the complete authorized registry count; the frontend's Total Travels card uses completed and requests travel_window=completed. Summary counts remain independent of search, status and pagination; the list and pagination use all selected filters. Each authorized page is hydrated with travel_details and all personnel snapshot names in two batched queries. Travel searches also match employee names, destinations and purposes.
+
+Deploy with the updated frontend; no migration is required. Verify boundaries and hydration with php tests/travel-overview-test.php (in-memory SQLite), and workspace/filter/permission behavior with php tests/admin-document-list-smoke.php (generated MySQL database removed afterward; no live records changed).
